@@ -1,1 +1,88 @@
 @import "tailwindcss";
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes rotate-disc {
+  to { transform: rotate(360deg); }
+}
+@keyframes shimmer {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+@theme {
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Fraunces', Georgia, serif;
+
+  --color-ink: #14110f;
+  --color-surface: #1d1916;
+  --color-raised: #28221e;
+  --color-line: #3a322c;
+  --color-paper: #f3ece2;
+  --color-muted: #a39a8d;
+  --color-accent: #e2673a;
+  --color-accent-soft: #f08a5d;
+
+  --animate-fade-up: fade-up 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-pop: pop 0.25s ease-out both;
+  --animate-rotate: rotate-disc 0.8s linear infinite;
+  --animate-slow-spin: rotate-disc 8s linear infinite;
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-ink);
+  background-image:
+    radial-gradient(60rem 30rem at 10% -10%, rgba(226, 103, 58, 0.14), transparent 60%),
+    radial-gradient(40rem 25rem at 100% 0%, rgba(240, 138, 93, 0.06), transparent 60%);
+  background-attachment: fixed;
+  color: var(--color-paper);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Léger grain de papier */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}
+
+/* Disque vinyle (étiquette cuivre + sillons) */
+.vinyl-disc {
+  background: radial-gradient(
+    circle at center,
+    #d9a066 0 14%,
+    #0b0908 15%,
+    #1c1814 30%,
+    #0b0908 45%,
+    #1c1814 60%,
+    #0b0908 75%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
