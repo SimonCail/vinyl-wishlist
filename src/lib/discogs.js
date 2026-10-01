@@ -6,11 +6,11 @@ async function discogsFetch(path, params = {}) {
 
   const qs = new URLSearchParams({ ...params, token })
   let response
-    try {
+  try {
     response = await fetch(`${BASE}${path}?${qs}`)
-    } catch {
+  } catch {
     throw new Error('Connexion impossible. Vérifie ton réseau.')
-    }
+  }
 
   if (response.status === 429) {
     throw new Error('Trop de requêtes Discogs, réessaie dans une minute.')
