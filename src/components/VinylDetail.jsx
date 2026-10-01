@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import Cover from './Cover'
 import { CloseIcon, ArrowIcon } from './Icons'
-import { getMasterDetails } from '../lib/discogs'
+import { AvatarStack } from './Avatar'
+import { getDetails, discogsUrl } from '../lib/discogs'
 import { formatPrice } from '../lib/format'
 
 function Pill({ children, strong }) {
@@ -16,7 +17,8 @@ function Pill({ children, strong }) {
   )
 }
 
-export default function VinylDetail({ vinyl, onSync, onClose }) {
+// onSync n'est appelé que si le disque est dans ma liste (je ne modifie que les miens)
+export default function VinylDetail({ vinyl, mode, inRoom, onSync, onClose }) {
   const [details, setDetails] = useState(null)
   const [error, setError] = useState(null)
   const synced = useRef(false)
@@ -24,21 +26,22 @@ export default function VinylDetail({ vinyl, onSync, onClose }) {
   // Chargement des infos en direct
   useEffect(() => {
     let cancelled = false
-    getMasterDetails(vinyl.discogs_id)
+    getDetails(vinyl)
       .then((d) => !cancelled && setDetails(d))
       .catch((e) => !cancelled && setError(e.message))
     return () => {
       cancelled = true
     }
-  }, [vinyl.discogs_id])
+  }, [vinyl.discogs_id, vinyl.discogs_type])
 
   // Synchronise la base une seule fois si le prix a changé ou si les genres manquent
   useEffect(() => {
-    if (!details || synced.current) return
+    if (!details || synced.current || !vinyl.myItem) return
     synced.current = true
-    const priceChanged = Number(details.lowest_price) !== Number(vinyl.lowest_price)
-    const needsGenres = !vinyl.genres?.length && details.genres.length > 0
-    if (priceChanged || needsGenres) onSync(vinyl, details)
+    const mine = vinyl.myItem
+    const priceChanged = Number(details.lowest_price) !== Number(mine.lowest_price)
+    const needsGenres = !mine.genres?.length && details.genres.length > 0
+    if (priceChanged || needsGenres) onSync(mine, details)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [details])
 
@@ -54,6 +57,7 @@ export default function VinylDetail({ vinyl, onSync, onClose }) {
   const price = details ? details.lowest_price : vinyl.lowest_price
   const forSale = details ? details.num_for_sale : vinyl.num_for_sale
   const videos = (details?.videos ?? []).filter((v) => v.uri?.startsWith('http')).slice(0, 4)
+  const owners = vinyl.owners || []
 
   return (
     <div
@@ -61,6 +65,9 @@ export default function VinylDetail({ vinyl, onSync, onClose }) {
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={vinyl.title}
         className="animate-pop max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 shadow-2xl shadow-black/60 sm:rounded-3xl sm:p-6"
         onClick={(e) => e.stopPropagation()}
       >
@@ -86,8 +93,12 @@ export default function VinylDetail({ vinyl, onSync, onClose }) {
               {vinyl.artist}
               {vinyl.year && ` · ${vinyl.year}`}
             </p>
-            {vinyl.added_by && (
-              <p className="mt-1 text-xs text-muted/70">Ajouté par {vinyl.added_by}</p>
+            {inRoom && owners.length > 0 && (
+              <p className="mt-2 flex items-center gap-2 text-xs text-muted">
+                <AvatarStack members={owners} size={20} />
+                {mode === 'wish' ? 'Voulu par ' : 'Dans la collection de '}
+                {owners.map((o) => o.name).join(', ')}
+              </p>
             )}
             {price != null && (
               <p className="mt-3">
@@ -124,7 +135,7 @@ export default function VinylDetail({ vinyl, onSync, onClose }) {
         )}
 
         {error && (
-          <p className="mt-5 rounded-xl bg-red-500/10 p-3 text-sm text-red-300">
+          <p className="mt-5 rounded-xl bg-red-500/10 p-3 text-sm text-red-600">
             Impossible de charger les détails : {error}
           </p>
         )}
@@ -180,7 +191,7 @@ export default function VinylDetail({ vinyl, onSync, onClose }) {
         )}
 
         <a
-          href={`https://www.discogs.com/master/${vinyl.discogs_id}`}
+          href={discogsUrl(vinyl)}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-6 flex items-center justify-center gap-2 rounded-full bg-accent py-2.5 text-sm font-bold text-ink transition hover:bg-accent-soft"

@@ -3,20 +3,24 @@ import { formatPrice } from './format'
 const stars = (n) => '★'.repeat(n) + '☆'.repeat(3 - n)
 
 // Texte de la liste, dans l'ordre affiché à l'écran
-export function buildListText(vinyls, { url, filtered }) {
+// title : « Mes souhaits », « Collection du salon Famille »…
+// url   : lien d'invitation du salon (aucun lien pour l'espace perso, qui est privé)
+export function buildListText(vinyls, { title, url, withOwners }) {
   const count = `${vinyls.length} disque${vinyls.length > 1 ? 's' : ''}`
-  const title = filtered ? 'Sélection de notre wishlist vinyles' : 'Notre wishlist vinyles'
 
   const lines = vinyls.map((v) => {
     let line = `• ${v.artist} – ${v.title}`
     if (v.year) line += ` (${v.year})`
     if (v.lowest_price != null) line += ` · dès ${formatPrice(v.lowest_price)}`
     if (v.priority > 0) line += ` · ${stars(v.priority)}`
+    if (withOwners && v.owners?.length) line += ` · ${v.owners.map((o) => o.name).join(', ')}`
     if (v.note) line += `\n   « ${v.note} »`
     return line
   })
 
-  return [`${title} (${count})`, '', ...lines, '', `Liste en direct : ${url}`].join('\n')
+  const out = [`${title} (${count})`, '', ...lines]
+  if (url) out.push('', `Rejoins le salon : ${url}`)
+  return out.join('\n')
 }
 
 // Copie dans le presse-papiers, avec une solution de secours pour les anciens navigateurs

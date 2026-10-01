@@ -1,0 +1,258 @@
+import { useEffect, useRef, useState } from 'react'
+import { Avatar, AvatarStack } from './Avatar'
+import { CheckIcon, ChevronIcon, PlusIcon, CopyIcon, CloseIcon } from './Icons'
+
+const topBtn =
+  'h-10 rounded-md border border-ink/40 px-3.5 py-0 text-xs font-medium text-ink transition hover:bg-ink hover:text-accent'
+
+function Row({ active, children, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active || undefined}
+      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+        active ? 'bg-accent/10' : 'hover:bg-raised'
+      }`}
+    >
+      {children}
+      {active && <CheckIcon width={16} height={16} className="ml-auto shrink-0 text-accent" />}
+    </button>
+  )
+}
+
+// Bouton du haut (où je suis) + menu : mon espace, mes salons, rejoindre / créer
+export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onCreate, onLogout, offline }) {
+  const [open, setOpen] = useState(false)
+  const [code, setCode] = useState('')
+  const [newName, setNewName] = useState(null) // null = formulaire de création fermé
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const rootRef = useRef(null)
+
+  // Fermeture au clic en dehors et avec Échap
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => !rootRef.current?.contains(e.target) && setOpen(false)
+    const onKey = (e) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  function toggle() {
+    setOpen((o) => !o)
+    setError(null)
+    setNewName(null)
+  }
+
+  function choose(id) {
+    onSelect(id)
+    setOpen(false)
+  }
+
+  async function run(action) {
+    setBusy(true)
+    setError(null)
+    const err = await action()
+    setBusy(false)
+    if (err) setError(err)
+    else {
+      setOpen(false)
+      setCode('')
+      setNewName(null)
+    }
+  }
+
+  const isRoom = current.kind === 'room'
+
+  return (
+    <div ref={rootRef} className="relative flex items-center gap-2">
+      <button
+        onClick={toggle}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className={`flex h-10 w-36 items-center justify-center gap-2 rounded-md border py-0 pl-1 pr-2.5 text-xs font-medium transition ${
+          open ? 'border-ink bg-ink text-accent' : 'border-ink/40 text-ink hover:bg-ink hover:text-accent'
+        }`}
+      >
+        {isRoom ? (
+          <AvatarStack members={current.members} size={22} />
+        ) : (
+          <Avatar member={me} size={22} ring={false} />
+        )}
+        <span className="max-w-[9rem] truncate">{isRoom ? current.name : 'Mon espace'}</span>
+        <ChevronIcon width={14} height={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <button onClick={onLogout} className={`${topBtn} w-36 justify-center hidden sm:block`}>
+        Se déconnecter
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="animate-pop absolute right-0 top-full z-30 mt-2 w-[min(22rem,calc(100vw-2.5rem))] rounded-2xl border border-line bg-surface p-2 text-paper shadow-[0_24px_60px_-20px_rgba(27,36,32,0.6)]"
+        >
+          <Row active={!isRoom} onClick={() => choose('me')}>
+            <Avatar member={me} size={34} ring={false} />
+            <span className="min-w-0">
+              <span className="block font-display text-base font-bold leading-tight">Mon espace</span>
+              <span className="block font-mono text-[11px] text-muted">
+                {myCounts.wish} souhait{myCounts.wish > 1 ? 's' : ''} · {myCounts.owned} dans la collection
+              </span>
+            </span>
+          </Row>
+
+          {rooms.length > 0 && (
+            <p className="px-3 pb-1 pt-3 text-[11px] font-medium uppercase tracking-[0.15em] text-muted">
+              Mes salons
+            </p>
+          )}
+          <div className="max-h-[40vh] overflow-y-auto">
+            {rooms.map((r) => (
+              <Row key={r.id} active={isRoom && current.id === r.id} onClick={() => choose(r.id)}>
+                <AvatarStack members={r.members} size={26} />
+                <span className="min-w-0">
+                  <span className="block truncate font-display text-base font-bold leading-tight">{r.name}</span>
+                  <span className="block font-mono text-[11px] text-muted">
+                    {r.members.length} membre{r.members.length > 1 ? 's' : ''} · code {r.code}
+                  </span>
+                </span>
+              </Row>
+            ))}
+          </div>
+
+          <div className="mt-2 border-t border-line px-1 pt-3">
+            {newName === null ? (
+              <>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (code.trim()) run(() => onJoin(code))
+                  }}
+                >
+                  <label htmlFor="room-code" className="px-2 text-[11px] font-medium uppercase tracking-[0.15em] text-muted">
+                    Rejoindre un salon
+                  </label>
+                  <div className="mt-2 flex gap-2 px-1">
+                    <input
+                      id="room-code"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.toUpperCase())}
+                      placeholder="Code (ex. K7-4QZ)"
+                      autoComplete="off"
+                      maxLength={10}
+                      disabled={offline}
+                      className="w-full min-w-0 rounded-xl border border-line bg-ink px-3 py-2 font-mono text-sm uppercase tracking-wider outline-none placeholder:normal-case placeholder:tracking-normal placeholder:text-muted/70 focus:border-accent"
+                    />
+                    <button
+                      disabled={busy || !code.trim() || offline}
+                      className="shrink-0 rounded-full bg-accent px-4 text-sm font-bold text-ink transition hover:bg-accent-soft disabled:opacity-50"
+                    >
+                      {busy ? '…' : 'Rejoindre'}
+                    </button>
+                  </div>
+                </form>
+                <button
+                  onClick={() => {
+                    setError(null)
+                    setNewName(`Salon de ${me.name}`)
+                  }}
+                  disabled={offline}
+                  className="mb-1 mt-3 flex w-full items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium text-muted transition hover:bg-raised hover:text-paper disabled:opacity-50"
+                >
+                  <PlusIcon width={16} height={16} /> Créer un salon
+                </button>
+              </>
+            ) : (
+              <form
+                className="pb-1"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  run(() => onCreate(newName))
+                }}
+              >
+                <div className="flex items-center justify-between px-2">
+                  <label htmlFor="room-name" className="text-[11px] font-medium uppercase tracking-[0.15em] text-muted">
+                    Nouveau salon
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setNewName(null)}
+                    aria-label="Annuler"
+                    className="rounded-full p-1 text-muted transition hover:bg-raised hover:text-paper"
+                  >
+                    <CloseIcon width={14} height={14} />
+                  </button>
+                </div>
+                <div className="mt-2 flex gap-2 px-1">
+                  <input
+                    id="room-name"
+                    autoFocus
+                    value={newName}
+                    maxLength={40}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    className="w-full min-w-0 rounded-xl border border-line bg-ink px-3 py-2 text-sm outline-none focus:border-accent"
+                  />
+                  <button
+                    disabled={busy || !newName.trim()}
+                    className="shrink-0 rounded-full bg-accent px-4 text-sm font-bold text-ink transition hover:bg-accent-soft disabled:opacity-50"
+                  >
+                    {busy ? '…' : 'Créer'}
+                  </button>
+                </div>
+                <p className="mt-2 px-2 text-xs text-muted">
+                  Tu recevras un code à donner aux personnes à inviter.
+                </p>
+              </form>
+            )}
+            {error && <p className="px-2 pb-2 pt-1 text-sm text-red-500">{error}</p>}
+            {offline && <p className="px-2 pb-2 text-xs text-muted">Indisponible hors-ligne.</p>}
+          </div>
+
+          <button
+            onClick={onLogout}
+            className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-muted transition hover:bg-raised hover:text-paper sm:hidden"
+          >
+            Se déconnecter
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Encart d'un salon : membres + code / lien d'invitation + quitter
+export function RoomBar({ room, meId, onCopyInvite, onLeave }) {
+  return (
+    <div className="animate-pop flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-surface px-5 py-4 shadow-[0_10px_30px_-18px_rgba(27,36,32,0.4)]">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        {room.members.map((m) => (
+          <span key={m.id} className="flex items-center gap-2 text-sm">
+            <Avatar member={m} size={26} ring={false} />
+            <span className="font-medium">{m.id === meId ? `${m.name} (toi)` : m.name}</span>
+          </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted">Inviter</span>
+        <button
+          onClick={onCopyInvite}
+          title="Copier le lien d'invitation"
+          className="flex items-center gap-2 rounded-full border border-dashed border-accent/60 px-3 py-1 font-mono text-sm font-medium tracking-wider text-accent transition hover:bg-accent/10"
+        >
+          {room.code} <CopyIcon width={14} height={14} />
+        </button>
+        <button
+          onClick={onLeave}
+          className="rounded-full px-2.5 py-1 text-xs text-muted transition hover:bg-red-500/10 hover:text-red-500"
+        >
+          Quitter
+        </button>
+      </div>
+    </div>
+  )
+}

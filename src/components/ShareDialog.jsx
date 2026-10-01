@@ -2,11 +2,12 @@ import { useEffect, useMemo } from 'react'
 import { CloseIcon, CopyIcon, ShareIcon } from './Icons'
 import { buildListText, copyToClipboard } from '../lib/share'
 
-export default function ShareDialog({ vinyls, filtered, onClose, onToast }) {
-  const url = `${window.location.origin}/`
+// title : « Mes souhaits », « Souhaits du salon Famille »…
+// inviteUrl : lien pour rejoindre le salon (absent pour l'espace perso, qui est privé)
+export default function ShareDialog({ vinyls, title, filtered, inviteUrl, withOwners, onClose, onToast }) {
   const text = useMemo(
-    () => buildListText(vinyls, { url, filtered }),
-    [vinyls, filtered, url]
+    () => buildListText(vinyls, { title, url: inviteUrl, withOwners }),
+    [vinyls, title, inviteUrl, withOwners]
   )
   const canShare = typeof navigator !== 'undefined' && !!navigator.share
 
@@ -25,7 +26,7 @@ export default function ShareDialog({ vinyls, filtered, onClose, onToast }) {
 
   async function nativeShare() {
     try {
-      await navigator.share({ title: 'Notre wishlist vinyles', text })
+      await navigator.share({ title, text })
       onClose()
     } catch (err) {
       // L'annulation par l'utilisateur n'est pas une erreur
@@ -39,6 +40,9 @@ export default function ShareDialog({ vinyls, filtered, onClose, onToast }) {
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Partager la liste"
         className="animate-pop max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 shadow-2xl shadow-black/60 sm:rounded-3xl sm:p-6"
         onClick={(e) => e.stopPropagation()}
       >
@@ -48,7 +52,7 @@ export default function ShareDialog({ vinyls, filtered, onClose, onToast }) {
             <p className="mt-1 text-sm text-muted">
               {filtered
                 ? 'Seule ta sélection actuelle est partagée.'
-                : 'Toute la liste est partagée, dans l\'ordre du tri actuel.'}
+                : "Toute la liste est partagée, dans l'ordre du tri actuel."}
             </p>
           </div>
           <button
@@ -75,12 +79,14 @@ export default function ShareDialog({ vinyls, filtered, onClose, onToast }) {
           >
             <CopyIcon width={16} height={16} /> Copier le texte
           </button>
-          <button
-            onClick={() => copy(url, 'Lien copié')}
-            className="flex flex-1 items-center justify-center gap-2 rounded-full border border-line py-2.5 text-sm font-medium transition hover:border-accent hover:bg-raised"
-          >
-            <CopyIcon width={16} height={16} /> Copier le lien
-          </button>
+          {inviteUrl && (
+            <button
+              onClick={() => copy(inviteUrl, "Lien d'invitation copié")}
+              className="flex flex-1 items-center justify-center gap-2 rounded-full border border-line py-2.5 text-sm font-medium transition hover:border-accent hover:bg-raised"
+            >
+              <CopyIcon width={16} height={16} /> Lien d'invitation
+            </button>
+          )}
           {canShare && (
             <button
               onClick={nativeShare}
@@ -92,8 +98,9 @@ export default function ShareDialog({ vinyls, filtered, onClose, onToast }) {
         </div>
 
         <p className="mt-4 text-xs text-muted/70">
-        Le lien ouvre la liste en direct. Sans le code, les personnes qui le
-        reçoivent la voient en lecture seule.
+          {inviteUrl
+            ? 'Le lien invite à rejoindre le salon : il faut un compte pour voir la liste en direct.'
+            : 'Ton espace perso reste privé : seul le texte est partagé. Pour une liste en direct, crée un salon.'}
         </p>
       </div>
     </div>

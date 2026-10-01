@@ -21,7 +21,6 @@ function recentlyDismissed() {
   return !!t && Date.now() - t < DISMISS_DAYS * 24 * 60 * 60 * 1000
 }
 
-// mode : 'prompt' (bouton natif), 'ios' (mode d'emploi) ou null (rien à afficher)
 export function useInstallPrompt() {
   const [deferred, setDeferred] = useState(null)
   const [installed, setInstalled] = useState(isStandalone)

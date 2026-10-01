@@ -52,3 +52,6 @@ export const CopyIcon = (p) => (
     <path d="M5 15V6a2 2 0 0 1 2-2h9" />
   </svg>
 )
+export const ChevronIcon = (p) => (
+  <svg {...base} {...p}><path d="m6 9 6 6 6-6" /></svg>
+)

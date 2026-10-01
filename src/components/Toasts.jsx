@@ -10,7 +10,7 @@ export default function Toasts({ toasts }) {
         >
           <span
             className={`h-2 w-2 rounded-full ${
-              t.type === 'error' ? 'bg-white' : 'bg-accent'
+              t.type === 'error' ? 'bg-white' : 'bg-sun'
             }`}
           />
           {t.message}

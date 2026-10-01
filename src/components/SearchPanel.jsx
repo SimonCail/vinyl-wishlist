@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import Cover from './Cover'
 import { SearchIcon, CloseIcon, PlusIcon, CheckIcon } from './Icons'
-import { searchVinyls, searchArtists, getArtistAlbums } from '../lib/discogs'
+import { searchVinyls, searchArtists, getArtistAlbums, itemKey } from '../lib/discogs'
 
 const DEBOUNCE_MS = 400
 const MIN_CHARS = 2
 
-export default function SearchPanel({ inListIds, onAdd, onError, offline }) {
+// statusOf(item) : 'wish' | 'owned' | null selon ma liste perso
+// onAdd(item, status) : ajoute à mes souhaits ou à ma collection
+// onGotIt(item) : un de mes souhaits passe dans ma collection
+export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, offline }) {
   const [query, setQuery] = useState('')
   const [artists, setArtists] = useState([])
   const [results, setResults] = useState([])
   const [selectedArtist, setSelectedArtist] = useState(null)
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [pending, setPending] = useState(() => new Set()) // ajouts en cours
 
   // Sert à ignorer les réponses des recherches déjà dépassées
   const requestId = useRef(0)
@@ -50,7 +54,7 @@ export default function SearchPanel({ inListIds, onAdd, onError, offline }) {
     const id = ++requestId.current
     setSearching(true)
     try {
-      const albums = await getArtistAlbums(artist.id)
+      const albums = await getArtistAlbums(artist)
       if (id !== requestId.current) return
       setResults(albums)
       setSelectedArtist(artist)
@@ -88,7 +92,24 @@ export default function SearchPanel({ inListIds, onAdd, onError, offline }) {
     reset()
   }
 
+  // Évite les doubles clics pendant que l'ajout part en base
+  async function withPending(item, action) {
+    const key = itemKey(item)
+    if (pending.has(key)) return
+    setPending((s) => new Set(s).add(key))
+    try {
+      await action()
+    } finally {
+      setPending((s) => {
+        const next = new Set(s)
+        next.delete(key)
+        return next
+      })
+    }
+  }
+
   const empty = searched && !artists.length && !results.length
+  const smallBtn = 'rounded-full px-3 py-1.5 text-xs transition disabled:opacity-50'
 
   return (
     <section>
@@ -100,12 +121,13 @@ export default function SearchPanel({ inListIds, onAdd, onError, offline }) {
           enterKeyHint="search"
           autoComplete="off"
           disabled={offline}
+          aria-label="Chercher un disque à ajouter"
           placeholder={
             offline
-                ? 'Recherche indisponible hors-ligne'
-                : 'Un artiste, un album… (ex. Josman, Discovery)'
+              ? 'Recherche indisponible hors-ligne'
+              : 'Un artiste, un album… (ex. Josman, Discovery)'
           }
-          className="w-full rounded-2xl border border-line bg-surface py-4 pl-14 pr-14 text-base outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-4 focus:ring-accent/15"
+          className="w-full rounded-2xl border border-line bg-surface py-4 pl-14 pr-14 text-base shadow-[0_10px_30px_-14px_rgba(27,36,32,0.35)] outline-none transition placeholder:text-muted/70 focus:border-accent focus:shadow-[0_14px_36px_-14px_rgba(29,74,58,0.5)] focus:ring-4 focus:ring-accent/10"
         />
         <div className="absolute right-3 top-1/2 -translate-y-1/2">
           {searching ? (
@@ -185,12 +207,15 @@ export default function SearchPanel({ inListIds, onAdd, onError, offline }) {
                 </p>
               )}
               <ul className="grid max-h-[26rem] gap-1 overflow-y-auto sm:grid-cols-2">
-                {results.map((item) => {
-                  const added = inListIds.has(item.discogs_id)
+                {results.map((item, i) => {
+                  const key = itemKey(item)
+                  const status = statusOf(item)
+                  const busy = pending.has(key)
                   return (
                     <li
-                      key={item.discogs_id}
-                      className="flex items-center gap-3 rounded-2xl p-2 transition hover:bg-raised"
+                      key={key}
+                      className="animate-fade-up flex items-center gap-3 rounded-2xl p-2 transition hover:bg-raised"
+                      style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
                     >
                       <Cover
                         url={item.cover_url}
@@ -201,19 +226,43 @@ export default function SearchPanel({ inListIds, onAdd, onError, offline }) {
                         <p className="truncate text-xs text-muted">
                           {item.artist}
                           {item.year && ` · ${item.year}`}
+                          {item.kind && ` · ${item.kind}`}
                         </p>
+                        {status === 'wish' && (
+                          <p className="mt-0.5 flex items-center gap-1 text-xs text-accent">
+                            <CheckIcon width={13} height={13} /> Dans mes souhaits
+                          </p>
+                        )}
                       </div>
-                      {added ? (
+                      {status === 'owned' ? (
                         <span className="flex shrink-0 items-center gap-1 text-xs text-muted">
-                          <CheckIcon width={14} height={14} /> Dans la liste
+                          <CheckIcon width={14} height={14} /> Dans ma collection
                         </span>
-                      ) : (
+                      ) : status === 'wish' ? (
                         <button
-                          onClick={() => onAdd(item)}
-                          className="flex shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 py-1.5 text-xs font-bold text-ink transition hover:bg-accent-soft"
+                          onClick={() => withPending(item, () => onGotIt(item))}
+                          disabled={busy}
+                          className={`${smallBtn} shrink-0 border border-line font-medium hover:border-accent`}
                         >
-                          <PlusIcon width={14} height={14} /> Ajouter
+                          Je l'ai
                         </button>
+                      ) : (
+                        <div className="flex shrink-0 gap-1.5">
+                          <button
+                            onClick={() => withPending(item, () => onAdd(item, 'wish'))}
+                            disabled={busy}
+                            className={`${smallBtn} flex items-center gap-1 bg-accent font-bold text-ink hover:bg-accent-soft`}
+                          >
+                            <PlusIcon width={13} height={13} /> Souhait
+                          </button>
+                          <button
+                            onClick={() => withPending(item, () => onAdd(item, 'owned'))}
+                            disabled={busy}
+                            className={`${smallBtn} border border-line font-medium hover:border-accent`}
+                          >
+                            Je l'ai
+                          </button>
+                        </div>
                       )}
                     </li>
                   )
