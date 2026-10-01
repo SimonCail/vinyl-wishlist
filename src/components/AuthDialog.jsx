@@ -78,7 +78,7 @@ export default function AuthDialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="animate-pop max-h-[92vh] w-full max-w-sm overflow-y-auto rounded-3xl border border-line bg-surface shadow-2xl shadow-black/50"
+        className="animate-pop nice-scroll max-h-[92vh] w-full max-w-sm overflow-y-auto rounded-3xl border border-line bg-surface shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {invite && mode !== 'recovery' && (

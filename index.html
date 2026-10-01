@@ -12,6 +12,15 @@
       rel="stylesheet"
     />
     <title>Vinyl Wishlist</title>
+    <script>
+      // Thème jour / nuit posé avant l'affichage, pour éviter un flash crème la nuit
+      try {
+        var t = localStorage.getItem('vinyl-wishlist-theme')
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        document.documentElement.dataset.theme = t
+        if (t === 'dark') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#153a2d')
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

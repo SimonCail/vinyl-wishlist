@@ -9,7 +9,17 @@ const MIN_CHARS = 2
 // statusOf(item) : 'wish' | 'owned' | null selon ma liste perso
 // onAdd(item, status) : ajoute à mes souhaits ou à ma collection
 // onGotIt(item) : un de mes souhaits passe dans ma collection
-export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, offline }) {
+function BarcodeIcon(p) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" aria-hidden="true" {...p}>
+      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M7 8v8M10 8v8M13 8v8M16.5 8v8" />
+    </svg>
+  )
+}
+
+export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan, offline }) {
   const [query, setQuery] = useState('')
   const [artists, setArtists] = useState([])
   const [results, setResults] = useState([])
@@ -113,39 +123,54 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, offline
 
   return (
     <section>
-      <form onSubmit={handleSubmit} className="relative">
-        <SearchIcon className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-muted" />
-        <input
-          value={query}
-          onChange={handleChange}
-          enterKeyHint="search"
-          autoComplete="off"
-          disabled={offline}
-          aria-label="Chercher un disque à ajouter"
-          placeholder={
-            offline
-              ? 'Recherche indisponible hors-ligne'
-              : 'Un artiste, un album… (ex. Josman, Discovery)'
-          }
-          className="w-full rounded-2xl border border-line bg-surface py-4 pl-14 pr-14 text-base shadow-[0_10px_30px_-14px_rgba(27,36,32,0.35)] outline-none transition placeholder:text-muted/70 focus:border-accent focus:shadow-[0_14px_36px_-14px_rgba(29,74,58,0.5)] focus:ring-4 focus:ring-accent/10"
-        />
-        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-          {searching ? (
-            <span className="m-1.5 block h-5 w-5 animate-rotate rounded-full border-2 border-line border-t-accent" />
-          ) : (
-            query && (
-              <button
-                type="button"
-                onClick={clear}
-                aria-label="Effacer la recherche"
-                className="rounded-full p-1.5 text-muted transition hover:bg-raised hover:text-paper"
-              >
-                <CloseIcon width={18} height={18} />
-              </button>
-            )
-          )}
-        </div>
-      </form>
+      <div className="flex gap-2">
+        <form onSubmit={handleSubmit} className="relative min-w-0 flex-1">
+          <SearchIcon className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            value={query}
+            onChange={handleChange}
+            enterKeyHint="search"
+            autoComplete="off"
+            disabled={offline}
+            aria-label="Chercher un disque à ajouter"
+            placeholder={
+              offline
+                ? 'Recherche indisponible hors-ligne'
+                : 'Un artiste, un album… (ex. Josman, Discovery)'
+            }
+            className="w-full rounded-2xl border border-line bg-surface py-4 pl-14 pr-14 text-base shadow-[0_10px_30px_-14px_rgba(27,36,32,0.35)] outline-none transition placeholder:text-muted/70 focus:border-accent focus:shadow-[0_14px_36px_-14px_rgba(29,74,58,0.5)] focus:ring-4 focus:ring-accent/10"
+          />
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            {searching ? (
+              <span className="m-1.5 block h-5 w-5 animate-rotate rounded-full border-2 border-line border-t-accent" />
+            ) : (
+              query && (
+                <button
+                  type="button"
+                  onClick={clear}
+                  aria-label="Effacer la recherche"
+                  className="rounded-full p-1.5 text-muted transition hover:bg-raised hover:text-paper"
+                >
+                  <CloseIcon width={18} height={18} />
+                </button>
+              )
+            )}
+          </div>
+        </form>
+        {onScan && (
+          <button
+            type="button"
+            onClick={onScan}
+            disabled={offline}
+            aria-label="Scanner un code-barres"
+            title="Scanner le code-barres d'un vinyle"
+            className="flex shrink-0 items-center gap-2 rounded-2xl bg-accent px-4 font-bold text-ink shadow-[0_10px_30px_-14px_rgba(27,36,32,0.5)] transition hover:bg-accent-soft disabled:opacity-50 sm:px-5"
+          >
+            <BarcodeIcon />
+            <span className="hidden sm:inline">Scanner</span>
+          </button>
+        )}
+      </div>
 
       {searched && (
         <div className="animate-pop mt-3 rounded-3xl border border-line bg-surface/90 p-4 backdrop-blur sm:p-5">
@@ -206,7 +231,7 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, offline
                   Albums
                 </p>
               )}
-              <ul className="grid max-h-[26rem] gap-1 overflow-y-auto sm:grid-cols-2">
+              <ul className="nice-scroll grid max-h-[26rem] gap-1 overflow-y-auto sm:grid-cols-2">
                 {results.map((item, i) => {
                   const key = itemKey(item)
                   const status = statusOf(item)

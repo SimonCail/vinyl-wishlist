@@ -1,7 +1,23 @@
 import { AvatarStack } from './Avatar'
+import SpinningDisc from './SpinningDisc'
+
+// Petite mention du disque posé sur la platine
+function NowSpinning({ disc }) {
+  if (!disc?.title) return null
+  return (
+    <p className="animate-fade-up mt-5 flex max-w-sm items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70" style={{ animationDelay: '220ms' }}>
+      <span aria-hidden="true" className="inline-block h-1.5 w-1.5 animate-shimmer rounded-full bg-coral" />
+      <span className="min-w-0 truncate">
+        Sur la platine · {disc.title}
+        {disc.artist && ` — ${disc.artist}`}
+      </span>
+    </p>
+  )
+}
 
 // En-tête : platine animée + titre affiche. Le texte s'adapte à l'espace affiché.
-export default function Hero({ count, context, topRight, compact = false }) {
+// disc : { cover_url, title, artist } du disque choisi dans le profil (sinon étiquette classique)
+export default function Hero({ count, context, topRight, compact = false, disc = null }) {
   const isRoom = context?.kind === 'room'
   const isMe = context?.kind === 'me'
 
@@ -11,9 +27,10 @@ export default function Hero({ count, context, topRight, compact = false }) {
         aria-hidden="true"
         className="pointer-events-none absolute -right-52 top-1/2 h-[30rem] w-[30rem] -translate-y-1/2 opacity-30 sm:-right-28 sm:h-[38rem] sm:w-[38rem] sm:opacity-100"
       >
-        <div
-          className="vinyl-disc animate-disc h-full w-full"
-          style={{ '--disc-label': isRoom ? '#f1c04e' : '#ec5b3e' }}
+        <SpinningDisc
+          cover={disc?.cover_url}
+          color={isRoom ? '#f1c04e' : '#ec5b3e'}
+          className="h-full w-full"
         />
         <svg viewBox="0 0 100 100" fill="none" className="absolute inset-0 h-full w-full overflow-visible">
           <g className="needle">
@@ -27,10 +44,10 @@ export default function Hero({ count, context, topRight, compact = false }) {
 
       <div className="relative mx-auto max-w-5xl px-5">
         <div className="flex items-center justify-between gap-3 py-4">
-          <span className="font-mono text-xs text-ink/70">
+          <span className="hidden whitespace-nowrap font-mono text-xs text-ink/70 sm:inline">
             vinyl-wishlist{count != null && ` · ${String(count).padStart(3, '0')}`}
           </span>
-          {topRight}
+          <div className="ml-auto">{topRight}</div>
         </div>
 
         <div className={compact ? 'pb-20 pt-10 sm:pb-24 sm:pt-16' : 'pb-24 pt-14 sm:pb-32 sm:pt-24'}>
@@ -49,11 +66,12 @@ export default function Hero({ count, context, topRight, compact = false }) {
                 Vos souhaits et vos collections, réunis. Chacun garde sa liste
                 perso, ici on voit tout ensemble.
               </p>
+              <NowSpinning disc={disc} />
             </>
           ) : isMe ? (
             <>
               <p className="animate-fade-up mb-4 font-mono text-xs uppercase tracking-[0.15em] text-ink/70">
-                Mon espace · {context.me.name}
+                Ma liste · {context.me.name}
               </p>
               <h1 className="font-display animate-fade-up text-[clamp(3.5rem,14vw,9.5rem)] font-black uppercase leading-[0.84]">
                 Mes
@@ -64,6 +82,7 @@ export default function Hero({ count, context, topRight, compact = false }) {
                 Ce que tu veux, ce que tu as déjà. Ta liste te suit dans tous
                 les salons que tu rejoins.
               </p>
+              <NowSpinning disc={disc} />
             </>
           ) : (
             <>

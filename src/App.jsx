@@ -12,6 +12,7 @@ import { getDetails, itemKey } from './lib/discogs'
 import { readCache, writeCache, readJSON, writeJSON, CONTEXT_KEY } from './lib/cache'
 import { copyToClipboard } from './lib/share'
 import Hero from './components/Hero'
+import { ThemeToggle } from './components/ThemePicker'
 import Marquee from './components/Marquee'
 import ShelfTabs from './components/ShelfTabs'
 import ListSummary from './components/ListSummary'
@@ -21,12 +22,20 @@ import VinylCard from './components/VinylCard'
 import VinylDetail from './components/VinylDetail'
 import ShareDialog from './components/ShareDialog'
 import AuthDialog from './components/AuthDialog'
+import ProfilePanel from './components/ProfilePanel'
+import BarcodeScanner from './components/BarcodeScanner'
+import DiscogsImport from './components/DiscogsImport'
 import Toasts from './components/Toasts'
 import InstallBanner from './components/InstallBanner'
 import OfflineBanner from './components/OfflineBanner'
 import { RoomPicker, RoomBar } from './components/Rooms'
+import { Avatar } from './components/Avatar'
 import { ConfirmDialog, NoteDialog } from './components/Dialogs'
 import { ShareIcon } from './components/Icons'
+
+// Disque à compléter : jamais passé par Discogs, ou pochette jamais cherchée.
+// cover_url = '' veut dire « cherchée, Discogs n'en a pas » : on ne réessaie pas.
+const isIncomplete = (v) => !v.price_updated_at || v.cover_url == null
 
 const topBtn =
   'rounded-md border border-ink/40 px-3.5 py-1.5 text-xs font-medium text-ink transition hover:bg-ink hover:text-accent'
@@ -67,15 +76,18 @@ export default function App() {
   const [authMode, setAuthMode] = useState(null) // null = fenêtre fermée
   const [inviteCode, setInviteCode] = useState(inviteFromUrl)
   const [invite, setInvite] = useState(null)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   const room = contextId !== 'me' ? rooms.find((r) => r.id === contextId) ?? null : null
 
-  // --- Espace affiché (mon espace ou un salon), mémorisé sur l'appareil ---
+  // --- Espace affiché (ma liste ou un salon), mémorisé sur l'appareil ---
   useEffect(() => {
     writeJSON(CONTEXT_KEY, contextId)
   }, [contextId])
 
-  // Le salon a disparu (quitté depuis un autre appareil…) -> retour à mon espace
+  // Le salon a disparu (quitté depuis un autre appareil…) -> retour à ma liste
   useEffect(() => {
     if (contextId !== 'me' && roomsLoaded && !room) setContextId('me')
   }, [contextId, roomsLoaded, room])
@@ -227,8 +239,8 @@ export default function App() {
 
   // --- Actions (toujours sur MES disques) ---
   async function addItem(item, status) {
-    if (!ensureOnline()) return
-    // On récupère genres et prix ; si Discogs ne répond pas, l'ajout continue quand même
+    if (!ensureOnline()) return null
+    // On récupère genres, prix et pochette ; si Discogs ne répond pas, l'ajout continue quand même
     let extra = {}
     try {
       const d = await getDetails(item)
@@ -238,6 +250,8 @@ export default function App() {
         lowest_price: d.lowest_price,
         num_for_sale: d.num_for_sale,
         price_updated_at: new Date().toISOString(),
+        // Pochette de la fiche album si la recherche n'en avait pas
+        ...(!item.cover_url ? { cover_url: d.cover_url || '' } : {}),
       }
     } catch {
       // pas de détails pour cette fois
@@ -264,10 +278,11 @@ export default function App() {
 
     if (error) {
       toast(error.code === '23505' ? 'Ce disque est déjà dans ta liste.' : error.message, 'error')
-      return
+      return null
     }
     setItems((prev) => (prev.some((v) => v.id === data.id) ? prev : [data, ...prev]))
     toast(`« ${data.title} » ajouté à ${status === 'wish' ? 'tes souhaits' : 'ta collection'}`)
+    return data
   }
 
   async function updateVinyl(id, patch) {
@@ -289,12 +304,13 @@ export default function App() {
 
   // Un souhait exaucé : il passe dans ma collection
   async function gotIt(mine) {
-    if (!mine) return
+    if (!mine) return null
     const data = await updateVinyl(mine.id, {
       status: 'owned',
       owned_at: new Date().toISOString(),
     })
     if (data) toast(`« ${data.title} » rejoint ta collection`)
+    return data
   }
 
   // Enregistre en base les infos fraîches venues de Discogs (mes disques seulement)
@@ -306,13 +322,15 @@ export default function App() {
       lowest_price: d.lowest_price,
       num_for_sale: d.num_for_sale,
       price_updated_at: new Date().toISOString(),
+      // Pochette manquante : on prend celle de la fiche Discogs ('' si elle n'en a pas)
+      ...(!mine.cover_url ? { cover_url: d.cover_url || '' } : {}),
     })
   }
 
-  // Complète mes disques sans infos ; sinon actualise tous mes prix
+  // Complète mes disques sans infos ou sans pochette ; sinon actualise tous mes prix
   async function refreshInfos() {
     if (!ensureOnline()) return
-    const stale = myItems.filter((v) => !v.price_updated_at)
+    const stale = myItems.filter(isIncomplete)
     const targets = stale.length ? stale : myItems
     let failed = 0
 
@@ -331,6 +349,66 @@ export default function App() {
     setRefreshing(null)
     if (failed) toast(`${failed} disque(s) n'ont pas pu être mis à jour`, 'error')
     else toast('Infos et prix à jour')
+  }
+
+  // Import Discogs : ajoute les nouveaux disques par paquets de 100 et passe en
+  // collection les souhaits déjà possédés. onProgress(n) suit l'avancement.
+  async function importItems({ inserts, upgrades }, onProgress) {
+    if (!navigator.onLine) throw new Error('Pas de connexion internet.')
+    const now = new Date().toISOString()
+    const rows = inserts.map(({ item, status }) => ({
+      discogs_id: item.discogs_id,
+      discogs_type: item.discogs_type,
+      artist: item.artist,
+      title: item.title,
+      year: item.year,
+      cover_url: item.cover_url,
+      kind: item.kind,
+      genres: item.genres,
+      styles: item.styles,
+      owner_id: userId,
+      added_by: me.name,
+      status,
+      owned_at: status === 'owned' ? item.added_at || now : null,
+      created_at: item.added_at || now, // garde l'ordre d'ajout de Discogs
+    }))
+
+    let done = 0
+    const added = []
+    for (let i = 0; i < rows.length; i += 100) {
+      const { data, error } = await supabase
+        .from('vinyls')
+        .upsert(rows.slice(i, i + 100), {
+          onConflict: 'owner_id,discogs_type,discogs_id',
+          ignoreDuplicates: true, // déjà là (ajouté entre-temps ailleurs) : on n'y touche pas
+        })
+        .select()
+      if (error) throw new Error(`Import interrompu après ${done} disques : ${error.message}`)
+      added.push(...data)
+      done += Math.min(100, rows.length - i)
+      onProgress(done)
+    }
+
+    const ids = upgrades.map((it) => myByKey.get(itemKey(it))?.id).filter(Boolean)
+    const upgraded = []
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data, error } = await supabase
+        .from('vinyls')
+        .update({ status: 'owned', owned_at: now })
+        .in('id', ids.slice(i, i + 100))
+        .select()
+      if (error) throw new Error(`Import interrompu : ${error.message}`)
+      upgraded.push(...data)
+      done += Math.min(100, ids.length - i)
+      onProgress(done)
+    }
+
+    setItems((prev) => {
+      const byId = new Map(prev.map((v) => [v.id, v]))
+      for (const v of [...added, ...upgraded]) byId.set(v.id, v)
+      return [...byId.values()]
+    })
+    return { added: added.length, upgraded: upgraded.length }
   }
 
   async function confirmNote(note) {
@@ -411,7 +489,45 @@ export default function App() {
     return err
   }
 
+  // --- Mon profil ---
+  // Après un changement, on recharge les salons pour que les autres membres
+  // (et mes avatars dans les salons) affichent la nouvelle version
+  async function saveProfile(patch) {
+    const err = await auth.updateProfile(patch)
+    if (!err) reloadRooms()
+    return err
+  }
+
+  async function setPhoto(blob) {
+    const err = await auth.setAvatar(blob)
+    if (!err) reloadRooms()
+    return err
+  }
+
+  async function setArtist(choice) {
+    const err = await auth.setArtistAvatar(choice)
+    if (!err) reloadRooms()
+    return err
+  }
+
+  async function removePhoto() {
+    const err = await auth.removeAvatar()
+    if (!err) reloadRooms()
+    return err
+  }
+
+  async function deleteAccount() {
+    const err = await auth.deleteAccount()
+    if (!err) {
+      setProfileOpen(false)
+      selectContext('me')
+      toast('Ton compte a été supprimé')
+    }
+    return err
+  }
+
   async function handleSignOut() {
+    setProfileOpen(false)
     await auth.signOut()
     selectContext('me')
     toast('À bientôt !')
@@ -457,7 +573,36 @@ export default function App() {
     wish: myItems.filter((v) => v.status === 'wish').length,
     owned: myItems.filter((v) => v.status === 'owned').length,
   }
-  const missingCount = myItems.filter((v) => !v.price_updated_at).length
+  const missingCount = myItems.filter(isIncomplete).length
+
+  // Disque sur la platine du haut (réglage du profil)
+  const [spinSeed] = useState(() => Math.random())
+  const myDiscs = useMemo(
+    () =>
+      [...myItems]
+        .filter((v) => v.cover_url)
+        .sort((a, b) => (a.status === b.status ? (a.created_at < b.created_at ? 1 : -1) : a.status === 'owned' ? -1 : 1))
+        .map((v) => ({ key: itemKey(v), cover_url: v.cover_url, title: v.title, artist: v.artist, status: v.status })),
+    [myItems]
+  )
+  const turntable = me?.turntable
+  const platine = useMemo(() => {
+    if (turntable?.mode === 'disc' && turntable.cover_url) return turntable
+    if (turntable?.mode === 'random') {
+      const owned = myDiscs.filter((d) => d.status === 'owned')
+      const pool = (owned.length ? owned : myDiscs).slice().sort((a, b) => (a.key < b.key ? -1 : 1))
+      if (pool.length) return pool[Math.floor(spinSeed * pool.length)]
+    }
+    return null
+  }, [turntable, myDiscs, spinSeed])
+  // Artistes proposés comme avatar : ceux de mes listes et de mes salons, les plus présents d'abord
+  const pickerArtists = useMemo(() => {
+    const counts = new Map()
+    for (const v of items) {
+      if (v.artist && v.artist !== 'Artiste inconnu') counts.set(v.artist, (counts.get(v.artist) || 0) + 1)
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name)
+  }, [items])
   const detailVinyl = detailKey ? all.find((v) => v.key === detailKey) : null
 
   function resetFilters() {
@@ -490,9 +635,12 @@ export default function App() {
         <OfflineBanner online={online} />
         <Hero
           topRight={
-            <button onClick={() => setAuthMode('login')} className={topBtn}>
-              Se connecter
-            </button>
+            <div className="flex items-center gap-2.5">
+              <ThemeToggle />
+              <button onClick={() => setAuthMode('login')} className={topBtn}>
+                Se connecter
+              </button>
+            </div>
           }
         />
         <main className="mx-auto max-w-5xl px-5 pt-14">
@@ -559,18 +707,32 @@ export default function App() {
         count={lists.wish.length + lists.owned.length}
         context={context}
         compact={!!room}
+        disc={platine}
         topRight={
-          <RoomPicker
-            me={me}
-            myCounts={myCounts}
-            rooms={rooms}
-            current={context}
-            onSelect={selectContext}
-            onJoin={joinRoom}
-            onCreate={createRoom}
-            onLogout={handleSignOut}
-            offline={!online}
-          />
+          <div className="flex items-center gap-2.5">
+            {/* Jour / nuit */}
+            <ThemeToggle />
+            {/* Où je regarde : ma liste ou un salon */}
+            <RoomPicker
+              me={me}
+              myCounts={myCounts}
+              rooms={rooms}
+              current={context}
+              onSelect={selectContext}
+              onJoin={joinRoom}
+              onCreate={createRoom}
+              offline={!online}
+            />
+            {/* Qui je suis : profil et compte */}
+            <button
+              onClick={() => setProfileOpen(true)}
+              aria-label="Mon profil"
+              title="Mon profil"
+              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-ink/50 transition hover:scale-105 hover:ring-ink"
+            >
+              <Avatar member={me} size={44} ring={false} className="block" />
+            </button>
+          </div>
         }
       />
       <Marquee items={artistNames} />
@@ -590,8 +752,17 @@ export default function App() {
           onAdd={addItem}
           onGotIt={(item) => gotIt(myByKey.get(itemKey(item)))}
           onError={(msg) => toast(msg, 'error')}
+          onScan={() => setScannerOpen(true)}
           offline={!online}
         />
+        {myItems.length < 10 && !loading && (
+          <p className="-mt-8 text-sm text-muted">
+            Déjà un compte Discogs ?{' '}
+            <button onClick={() => setImportOpen(true)} className="font-medium text-accent underline-offset-4 hover:underline">
+              Importer ta collection et ta wantlist
+            </button>
+          </p>
+        )}
 
         <section>
           <ShelfTabs
@@ -718,8 +889,13 @@ export default function App() {
           vinyl={detailVinyl}
           mode={tab}
           inRoom={!!room}
+          canAdd={!statusOf(detailVinyl)}
           onSync={syncDetails}
           onClose={() => setDetailKey(null)}
+          onPriority={(p) => updateVinyl(detailVinyl.myItem.id, { priority: p })}
+          onGotIt={() => gotIt(detailVinyl.myItem)}
+          onNote={() => setNoteTarget(detailVinyl)}
+          onMeToo={() => addItem(detailVinyl, tab)}
         />
       )}
       {shareOpen && (
@@ -730,6 +906,53 @@ export default function App() {
           inviteUrl={room ? inviteUrl(room.code) : null}
           withOwners={!!room}
           onClose={() => setShareOpen(false)}
+          onToast={toast}
+        />
+      )}
+      {importOpen && (
+        <DiscogsImport
+          statusOf={statusOf}
+          onImport={importItems}
+          onCompletePrices={() => {
+            setImportOpen(false)
+            if (!refreshing) refreshInfos()
+          }}
+          onClose={() => setImportOpen(false)}
+          offline={!online}
+        />
+      )}
+      {scannerOpen && (
+        <BarcodeScanner
+          statusOf={statusOf}
+          onAdd={addItem}
+          onGotIt={(item) => gotIt(myByKey.get(itemKey(item)))}
+          onClose={() => setScannerOpen(false)}
+          offline={!online}
+        />
+      )}
+      {profileOpen && me && (
+        <ProfilePanel
+          me={me}
+          email={user.email}
+          myCounts={myCounts}
+          rooms={rooms}
+          offline={!online}
+          onSaveProfile={saveProfile}
+          onSetPhoto={setPhoto}
+          onSetArtist={setArtist}
+          myArtists={pickerArtists}
+          myDiscs={myDiscs}
+          onSetTurntable={(value) => auth.updateProfile({ turntable: value })}
+          onRemovePhoto={removePhoto}
+          onChangeEmail={auth.changeEmail}
+          onChangePassword={auth.changePassword}
+          onLogout={handleSignOut}
+          onImport={() => {
+            setProfileOpen(false)
+            setImportOpen(true)
+          }}
+          onDeleteAccount={deleteAccount}
+          onClose={() => setProfileOpen(false)}
           onToast={toast}
         />
       )}

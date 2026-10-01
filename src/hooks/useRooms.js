@@ -19,10 +19,16 @@ export function useRooms(userId) {
       setRooms([])
       return
     }
-    const { data, error } = await supabase
-      .from('rooms')
-      .select('id, name, code, created_at, room_members(joined_at, profile:profiles(id, name, color))')
-      .order('created_at')
+    const query = (cols) =>
+      supabase
+        .from('rooms')
+        .select(`id, name, code, created_at, room_members(joined_at, profile:profiles(${cols}))`)
+        .order('created_at')
+    let { data, error } = await query('id, name, color, avatar_path, avatar_url, avatar_label')
+    // Script 4 pas encore lancé : on se passe des avatars d'artiste
+    if (error?.code === '42703' || /avatar_(url|label)/.test(error?.message || '')) {
+      ;({ data, error } = await query('id, name, color, avatar_path'))
+    }
     if (error) return // hors-ligne : on garde le cache
 
     const list = data.map((r) => ({
@@ -84,6 +90,8 @@ export async function previewRoom(code) {
       id: `preview-${i}`,
       name,
       color: row.member_colors[i],
+      avatar_path: row.member_avatars?.[i] ?? null,
+      avatar_url: row.member_avatar_urls?.[i] ?? null,
     })),
   }
 }

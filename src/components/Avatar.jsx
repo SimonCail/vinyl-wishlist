@@ -1,9 +1,17 @@
-// Pastille ronde avec l'initiale d'une personne, dans sa couleur
+import { useState } from 'react'
+import { avatarUrl } from '../lib/avatar'
+
+// Pastille ronde : la photo (ou l'artiste choisi), sinon l'initiale dans sa couleur
+// (initiale toujours foncée : les couleurs d'avatar sont claires, de jour comme de nuit)
 export function Avatar({ member, size = 28, ring = true, className = '' }) {
+  const src = member.avatar_src ?? (member.avatar_path ? avatarUrl(member.avatar_path) : member.avatar_url)
+  const [failed, setFailed] = useState(null) // adresse qui n'a pas pu se charger
+  const showImage = src && failed !== src
+
   return (
     <span
-      title={member.name}
-      className={`inline-flex shrink-0 items-center justify-center rounded-full font-display font-black uppercase text-paper ${
+      title={member.avatar_label ? `${member.name} · ${member.avatar_label}` : member.name}
+      className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-display font-black uppercase text-[#1b2420] ${
         ring ? 'ring-2 ring-ink' : ''
       } ${className}`}
       style={{
@@ -13,7 +21,18 @@ export function Avatar({ member, size = 28, ring = true, className = '' }) {
         backgroundColor: member.color,
       }}
     >
-      {member.name[0]}
+      {showImage ? (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          draggable="false"
+          onError={() => setFailed(src)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        member.name?.[0]
+      )}
     </span>
   )
 }
@@ -25,12 +44,7 @@ export function AvatarStack({ members, size = 28, max = 4, className = '' }) {
   return (
     <span className={`flex items-center ${className}`}>
       {shown.map((m, i) => (
-        <Avatar
-          key={m.id}
-          member={m}
-          size={size}
-          className={i > 0 ? '-ml-2' : ''}
-        />
+        <Avatar key={m.id} member={m} size={size} className={i > 0 ? '-ml-2' : ''} />
       ))}
       {extra > 0 && (
         <span

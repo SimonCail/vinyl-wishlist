@@ -43,7 +43,7 @@ export default function ShareDialog({ vinyls, title, filtered, inviteUrl, withOw
         role="dialog"
         aria-modal="true"
         aria-label="Partager la liste"
-        className="animate-pop max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 shadow-2xl shadow-black/60 sm:rounded-3xl sm:p-6"
+        className="animate-pop nice-scroll max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 shadow-2xl shadow-black/60 sm:rounded-3xl sm:p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">

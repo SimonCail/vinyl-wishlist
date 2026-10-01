@@ -54,6 +54,47 @@ html {
   color-scheme: light;
 }
 
+/* ------------------------------------------------------------------
+   Mode « nuit » : même DA, lumières éteintes.
+   Le fond crème devient un vert presque noir, le texte devient crème,
+   le vert sert de couleur de lien plus claire pour rester lisible.
+   Le thème est posé sur <html data-theme="dark"> (voir useTheme.js).
+   ------------------------------------------------------------------ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-ink: #101714;
+  --color-surface: #18211d;
+  --color-raised: #222c27;
+  --color-line: #2d3833;
+  --color-paper: #f0eadd;
+  --color-muted: #9aa398;
+  --color-accent: #86c9a6;
+  --color-accent-soft: #153a2d;
+  --color-red-600: #ff8a73;
+}
+
+/* Les « îlots » colorés (en-tête vert, fenêtres vertes, ruban corail,
+   pastilles jaunes, boutons verts, étiquettes de prix avec .keep-day)
+   gardent exactement leurs couleurs de jour : crème sur vert, vert foncé
+   sur crème… Ils reprennent simplement la palette claire. */
+:root[data-theme='dark']
+  :is(.bg-accent, .bg-accent-soft, .bg-coral, .bg-sun, .bg-accent\/50, .hover\:bg-accent:hover, .keep-day) {
+  --color-ink: #f5f1e8;
+  --color-surface: #fdfbf6;
+  --color-raised: #ece6d8;
+  --color-line: #e2dbc9;
+  --color-paper: #1b2420;
+  --color-muted: #5f685f;
+  --color-accent: #1d4a3a;
+  --color-red-600: oklch(57.7% 0.245 27.325);
+}
+
+/* La nuit, une lueur verte très douce en haut de page */
+:root[data-theme='dark'] body {
+  background-image: radial-gradient(120% 60% at 50% 0%, rgba(29, 74, 58, 0.18), transparent 70%);
+  background-attachment: fixed;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--color-ink);
@@ -151,4 +192,38 @@ select:focus-visible {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Barre de défilement discrète dans les fenêtres (fiche disque, profil…) */
+.nice-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-paper) 22%, transparent) transparent;
+}
+.nice-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.nice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 20px;
+}
+.nice-scroll::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--color-paper) 22%, transparent);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+.nice-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--color-paper) 40%, transparent);
+}
+.nice-scroll::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Ligne qui balaie le cadre du scanner de codes-barres */
+@keyframes scan-sweep {
+  0%, 100% { top: 10%; }
+  50% { top: 88%; }
+}
+.scan-line {
+  animation: scan-sweep 2.2s ease-in-out infinite;
 }

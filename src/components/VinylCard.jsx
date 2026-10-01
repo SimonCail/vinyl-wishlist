@@ -2,7 +2,8 @@ import Cover from './Cover'
 import { StarIcon, TrashIcon, NoteIcon, ArrowIcon, CheckIcon, PlusIcon } from './Icons'
 import { AvatarStack, namesLabel } from './Avatar'
 import { formatPrice } from '../lib/format'
-import { discogsUrl } from '../lib/discogs'
+import { discogsUrl, prefetchDetails } from '../lib/discogs'
+import { useRef } from 'react'
 import { colorFor } from '../lib/palette'
 
 // « oct. 2026 »
@@ -16,6 +17,14 @@ export default function VinylCard({
   onOpen, onDelete, onPriority, onNote, onGotIt, onMeToo,
 }) {
   const color = colorFor(vinyl)
+  // Au survol (après un court instant) ou au toucher, on précharge la fiche
+  const hoverTimer = useRef(null)
+  const prefetch = () => prefetchDetails(vinyl)
+  const startHover = () => {
+    clearTimeout(hoverTimer.current)
+    hoverTimer.current = setTimeout(prefetch, 120)
+  }
+  const stopHover = () => clearTimeout(hoverTimer.current)
   const owners = vinyl.owners || []
   const shared = inRoom && owners.length > 1
   const editable = vinyl.mine
@@ -24,7 +33,14 @@ export default function VinylCard({
     : vinyl.kind && vinyl.kind !== 'Album' ? vinyl.kind : null
 
   return (
-    <li className="group animate-fade-up" style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}>
+    <li
+      className="group animate-fade-up"
+      style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}
+      onPointerEnter={startHover}
+      onPointerLeave={stopHover}
+      onTouchStart={prefetch}
+      onFocus={prefetch}
+    >
       <div className="relative cursor-pointer" onClick={onOpen}>
         <div
           aria-hidden="true"
@@ -58,7 +74,7 @@ export default function VinylCard({
         {vinyl.lowest_price != null && (
           <span
             title={mode === 'wish' ? 'Prix le plus bas actuellement en vente' : 'Cote actuelle (offre la moins chère)'}
-            className="absolute -bottom-2 -left-2 z-10 -rotate-3 rounded-sm px-2 py-1 font-mono text-xs font-medium text-paper shadow-md transition duration-300 group-hover:rotate-2 group-hover:scale-110"
+            className="keep-day absolute -bottom-2 -left-2 z-10 -rotate-3 rounded-sm px-2 py-1 font-mono text-xs font-medium text-paper shadow-md transition duration-300 group-hover:rotate-2 group-hover:scale-110"
             style={{ backgroundColor: color }}
           >
             {formatPrice(vinyl.lowest_price)}

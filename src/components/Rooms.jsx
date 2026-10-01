@@ -2,8 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { Avatar, AvatarStack } from './Avatar'
 import { CheckIcon, ChevronIcon, PlusIcon, CopyIcon, CloseIcon } from './Icons'
 
-const topBtn =
-  'h-10 rounded-md border border-ink/40 px-3.5 py-0 text-xs font-medium text-ink transition hover:bg-ink hover:text-accent'
+// Petit disque à ta couleur : symbole de « Ma liste »
+function MyDisc({ color, size }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="vinyl-disc block shrink-0"
+      style={{ width: size, height: size, '--disc-label': color }}
+    />
+  )
+}
 
 function Row({ active, children, onClick }) {
   return (
@@ -20,8 +28,9 @@ function Row({ active, children, onClick }) {
   )
 }
 
-// Bouton du haut (où je suis) + menu : mon espace, mes salons, rejoindre / créer
-export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onCreate, onLogout, offline }) {
+// Sélecteur « où je regarde » : ma liste perso ou un de mes salons,
+// + rejoindre / créer un salon. (Le compte, lui, est dans le bouton avatar.)
+export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onCreate, offline }) {
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState('')
   const [newName, setNewName] = useState(null) // null = formulaire de création fermé
@@ -74,20 +83,17 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
         onClick={toggle}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`flex h-10 w-36 items-center justify-center gap-2 rounded-md border py-0 pl-1 pr-2.5 text-xs font-medium transition ${
+        className={`flex h-11 items-center gap-2.5 rounded-full border pl-1.5 pr-3.5 text-sm font-medium transition ${
           open ? 'border-ink bg-ink text-accent' : 'border-ink/40 text-ink hover:bg-ink hover:text-accent'
         }`}
       >
         {isRoom ? (
-          <AvatarStack members={current.members} size={22} />
+          <AvatarStack members={current.members} size={30} />
         ) : (
-          <Avatar member={me} size={22} ring={false} />
+          <MyDisc color={me.color} size={30} />
         )}
-        <span className="max-w-[9rem] truncate">{isRoom ? current.name : 'Mon espace'}</span>
+        <span className="max-w-[6.5rem] truncate sm:max-w-[10rem]">{isRoom ? current.name : 'Ma liste'}</span>
         <ChevronIcon width={14} height={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      <button onClick={onLogout} className={`${topBtn} w-36 justify-center hidden sm:block`}>
-        Se déconnecter
       </button>
 
       {open && (
@@ -96,9 +102,9 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
           className="animate-pop absolute right-0 top-full z-30 mt-2 w-[min(22rem,calc(100vw-2.5rem))] rounded-2xl border border-line bg-surface p-2 text-paper shadow-[0_24px_60px_-20px_rgba(27,36,32,0.6)]"
         >
           <Row active={!isRoom} onClick={() => choose('me')}>
-            <Avatar member={me} size={34} ring={false} />
+            <MyDisc color={me.color} size={34} />
             <span className="min-w-0">
-              <span className="block font-display text-base font-bold leading-tight">Mon espace</span>
+              <span className="block font-display text-base font-bold leading-tight">Ma liste</span>
               <span className="block font-mono text-[11px] text-muted">
                 {myCounts.wish} souhait{myCounts.wish > 1 ? 's' : ''} · {myCounts.owned} dans la collection
               </span>
@@ -110,7 +116,7 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
               Mes salons
             </p>
           )}
-          <div className="max-h-[40vh] overflow-y-auto">
+          <div className="nice-scroll max-h-[40vh] overflow-y-auto">
             {rooms.map((r) => (
               <Row key={r.id} active={isRoom && current.id === r.id} onClick={() => choose(r.id)}>
                 <AvatarStack members={r.members} size={26} />
@@ -212,13 +218,6 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
             {error && <p className="px-2 pb-2 pt-1 text-sm text-red-500">{error}</p>}
             {offline && <p className="px-2 pb-2 text-xs text-muted">Indisponible hors-ligne.</p>}
           </div>
-
-          <button
-            onClick={onLogout}
-            className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-muted transition hover:bg-raised hover:text-paper sm:hidden"
-          >
-            Se déconnecter
-          </button>
         </div>
       )}
     </div>

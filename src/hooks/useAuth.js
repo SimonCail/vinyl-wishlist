@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PROFILE_KEY, clearUserCache, readJSON, writeJSON } from '../lib/cache'
+import { uploadAvatar, removeAvatars } from '../lib/avatar'
+
+// Colonnes du profil, de la plus complète à la plus courte : tant qu'un script
+// SQL (4, 5…) n'est pas lancé, on se rabat sur ce qui existe déjà.
+const PROFILE_COL_SETS = [
+  'id, name, color, avatar_path, avatar_url, avatar_label, turntable',
+  'id, name, color, avatar_path, avatar_url, avatar_label',
+  'id, name, color, avatar_path',
+]
+let profileCols = PROFILE_COL_SETS[0]
+const missingColumn = (error) =>
+  error?.code === '42703' || /avatar_(url|label)|turntable|does not exist/.test(error?.message || '')
 
 // Messages d'erreur Supabase -> phrases lisibles
 function authMessage(error) {
@@ -20,6 +32,8 @@ function authMessage(error) {
       return 'Cet email ne semble pas valide.'
     case 'same_password':
       return 'Choisis un mot de passe différent de l’ancien.'
+    case 'over_email_send_rate_limit':
+      return 'Trop d’emails envoyés, réessaie dans quelques minutes.'
   }
   if (error.status === 429) return "Trop d'essais, patiente quelques minutes."
   if (!navigator.onLine) return 'Pas de connexion internet.'
@@ -50,14 +64,17 @@ export function useAuth() {
   const user = session?.user ?? null
   const userId = user?.id
 
-  // Profil (prénom + couleur), gardé en cache pour le hors-ligne
+  // Profil (prénom, couleur, photo), gardé en cache pour le hors-ligne
   const loadProfile = useCallback(async () => {
     if (!userId) return
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, name, color')
-      .eq('id', userId)
-      .single()
+    let data = null
+    for (const cols of PROFILE_COL_SETS) {
+      const res = await supabase.from('profiles').select(cols).eq('id', userId).single()
+      if (missingColumn(res.error)) continue
+      data = res.data
+      profileCols = cols
+      break
+    }
     if (data) {
       setProfile(data)
       writeJSON(PROFILE_KEY, data)
@@ -107,6 +124,95 @@ export function useAuth() {
     setProfile(null)
   }
 
+  // --- Mon profil ---
+  function saveProfileLocally(data) {
+    setProfile(data)
+    writeJSON(PROFILE_KEY, data)
+  }
+
+  // patch : { name, color, avatar_path } (une partie suffit). Renvoie un message d'erreur ou null.
+  async function updateProfile(patch) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(patch)
+      .eq('id', userId)
+      .select(profileCols)
+      .single()
+    if (missingColumn(error)) {
+      return 'turntable' in patch
+        ? 'Lance d’abord le script 5-platine.sql dans Supabase.'
+        : 'Lance d’abord le script 4-avatars-artistes.sql dans Supabase.'
+    }
+    if (error) return navigator.onLine ? 'Enregistrement impossible, réessaie.' : 'Pas de connexion internet.'
+    saveProfileLocally(data)
+    return null
+  }
+
+  // Nouvelle photo (déjà recadrée) : envoi, mise à jour du profil, ménage des anciennes
+  async function setAvatar(blob) {
+    let path
+    try {
+      path = await uploadAvatar(userId, blob)
+    } catch (e) {
+      return e.message
+    }
+    const err = await updateProfile({ avatar_path: path, avatar_url: null, avatar_label: null })
+    if (err) return err
+    removeAvatars(userId, path).catch(() => {})
+    return null
+  }
+
+  // Avatar d'artiste (image Discogs) : remplace la photo
+  async function setArtistAvatar({ url, label }) {
+    const err = await updateProfile({ avatar_path: null, avatar_url: url, avatar_label: label })
+    if (err) return err
+    removeAvatars(userId).catch(() => {})
+    return null
+  }
+
+  async function removeAvatar() {
+    const err = await updateProfile({ avatar_path: null, avatar_url: null, avatar_label: null })
+    if (err) return err
+    removeAvatars(userId).catch(() => {})
+    return null
+  }
+
+  // Renvoie { error, info }
+  async function changeEmail(email) {
+    if (email.trim().toLowerCase() === user?.email?.toLowerCase()) {
+      return { error: 'C’est déjà ton email.' }
+    }
+    const { error } = await supabase.auth.updateUser(
+      { email: email.trim() },
+      { emailRedirectTo: window.location.origin }
+    )
+    if (error) return { error: authMessage(error) }
+    return { info: `Clique sur le lien envoyé à ${email.trim()} pour confirmer le changement.` }
+  }
+
+  // On vérifie d'abord le mot de passe actuel
+  async function changePassword(current, next) {
+    const check = await supabase.auth.signInWithPassword({ email: user.email, password: current })
+    if (check.error) {
+      return check.error.code === 'invalid_credentials'
+        ? 'Mot de passe actuel incorrect.'
+        : authMessage(check.error)
+    }
+    const { error } = await supabase.auth.updateUser({ password: next })
+    return authMessage(error)
+  }
+
+  // Supprime définitivement le compte (photos, profil, disques, places dans les salons)
+  async function deleteAccount() {
+    await removeAvatars(userId).catch(() => {})
+    const { error } = await supabase.rpc('delete_my_account')
+    if (error) return navigator.onLine ? 'Suppression impossible, réessaie.' : 'Pas de connexion internet.'
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+    clearUserCache()
+    setProfile(null)
+    return null
+  }
+
   // Tant que le profil n'est pas chargé, on se contente des infos du compte
   const me = useMemo(() => {
     if (!user) return null
@@ -128,5 +234,12 @@ export function useAuth() {
     signOut,
     resetPassword,
     updatePassword,
+    updateProfile,
+    setAvatar,
+    setArtistAvatar,
+    removeAvatar,
+    changeEmail,
+    changePassword,
+    deleteAccount,
   }
 }
