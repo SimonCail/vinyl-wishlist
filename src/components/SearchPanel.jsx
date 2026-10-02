@@ -231,7 +231,7 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
                   Albums
                 </p>
               )}
-              <ul className="nice-scroll grid max-h-[26rem] gap-1 overflow-y-auto sm:grid-cols-2">
+              <ul className="nice-scroll grid max-h-[26rem] gap-1 overflow-y-auto overflow-x-hidden sm:grid-cols-2 xl:grid-cols-3">
                 {results.map((item, i) => {
                   const key = itemKey(item)
                   const status = statusOf(item)
@@ -239,7 +239,7 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
                   return (
                     <li
                       key={key}
-                      className="animate-fade-up flex items-center gap-3 rounded-2xl p-2 transition hover:bg-raised"
+                      className="animate-fade-up flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl p-2 lg:flex-nowrap transition hover:bg-raised"
                       style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
                     >
                       <Cover
@@ -259,36 +259,38 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
                           </p>
                         )}
                       </div>
-                      {status === 'owned' ? (
-                        <span className="flex shrink-0 items-center gap-1 text-xs text-muted">
-                          <CheckIcon width={14} height={14} /> Dans ma collection
-                        </span>
-                      ) : status === 'wish' ? (
-                        <button
-                          onClick={() => withPending(item, () => onGotIt(item))}
-                          disabled={busy}
-                          className={`${smallBtn} shrink-0 border border-line font-medium hover:border-accent`}
-                        >
-                          Je l'ai
-                        </button>
-                      ) : (
-                        <div className="flex shrink-0 gap-1.5">
+                      <div className="w-full pl-[4.25rem] lg:w-auto lg:pl-0">
+                        {status === 'owned' ? (
+                          <span className="flex shrink-0 items-center gap-1 text-xs text-muted">
+                            <CheckIcon width={14} height={14} /> Dans ma collection
+                          </span>
+                        ) : status === 'wish' ? (
                           <button
-                            onClick={() => withPending(item, () => onAdd(item, 'wish'))}
+                            onClick={() => withPending(item, () => onGotIt(item))}
                             disabled={busy}
-                            className={`${smallBtn} flex items-center gap-1 bg-accent font-bold text-ink hover:bg-accent-soft`}
-                          >
-                            <PlusIcon width={13} height={13} /> Souhait
-                          </button>
-                          <button
-                            onClick={() => withPending(item, () => onAdd(item, 'owned'))}
-                            disabled={busy}
-                            className={`${smallBtn} border border-line font-medium hover:border-accent`}
+                            className={`${smallBtn} shrink-0 border border-line font-medium hover:border-accent`}
                           >
                             Je l'ai
                           </button>
-                        </div>
-                      )}
+                        ) : (
+                          <div className="flex shrink-0 gap-1.5">
+                            <button
+                              onClick={() => withPending(item, () => onAdd(item, 'wish'))}
+                              disabled={busy}
+                              className={`${smallBtn} flex items-center gap-1 bg-accent font-bold text-ink hover:bg-accent-soft`}
+                            >
+                              <PlusIcon width={13} height={13} /> Souhait
+                            </button>
+                            <button
+                              onClick={() => withPending(item, () => onAdd(item, 'owned'))}
+                              disabled={busy}
+                              className={`${smallBtn} border border-line font-medium hover:border-accent`}
+                            >
+                              Je l'ai
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </li>
                   )
                 })}

@@ -428,6 +428,10 @@ export default function App() {
     else {
       setItems((prev) => prev.filter((v) => v.id !== id))
       toast('Disque retiré de ta liste')
+            // Si c'était le disque de la platine, on revient à l'étiquette classique
+      if (me?.turntable?.mode === 'disc' && me.turntable.key === deleteTarget.key) {
+        auth.updateProfile({ turntable: null })
+      }
     }
     setDeleteTarget(null)
   }
@@ -587,14 +591,18 @@ export default function App() {
   )
   const turntable = me?.turntable
   const platine = useMemo(() => {
-    if (turntable?.mode === 'disc' && turntable.cover_url) return turntable
+        // Le disque choisi ne tourne que s'il est encore dans ma collection
+    if (turntable?.mode === 'disc' && turntable.cover_url) {
+      const stillOwned = myDiscs.some((d) => d.key === turntable.key && d.status === 'owned')
+      return stillOwned || loading ? turntable : null
+    }
     if (turntable?.mode === 'random') {
       const owned = myDiscs.filter((d) => d.status === 'owned')
-      const pool = (owned.length ? owned : myDiscs).slice().sort((a, b) => (a.key < b.key ? -1 : 1))
+      const pool = owned.slice().sort((a, b) => (a.key < b.key ? -1 : 1))
       if (pool.length) return pool[Math.floor(spinSeed * pool.length)]
     }
     return null
-  }, [turntable, myDiscs, spinSeed])
+  }, [turntable, myDiscs, spinSeed, loading])
   // Artistes proposés comme avatar : ceux de mes listes et de mes salons, les plus présents d'abord
   const pickerArtists = useMemo(() => {
     const counts = new Map()
@@ -643,7 +651,7 @@ export default function App() {
             </div>
           }
         />
-        <main className="mx-auto max-w-5xl px-5 pt-14">
+        <main className="mx-auto max-w-[88rem] sm:px-8 lg:px-14 px-5 pt-14">
           <div className="animate-pop rounded-3xl border border-line bg-surface p-6 shadow-[0_10px_30px_-18px_rgba(27,36,32,0.4)] sm:p-8">
             <ul className="grid gap-6 sm:grid-cols-3">
               {[
@@ -698,7 +706,7 @@ export default function App() {
   }[tab]
 
   const gridClass =
-    'grid grid-cols-2 gap-x-6 gap-y-12 sm:grid-cols-3 sm:gap-x-10 md:grid-cols-4 md:gap-x-12'
+    'grid grid-cols-2 gap-x-6 gap-y-12 sm:grid-cols-3 sm:gap-x-10 md:grid-cols-4 md:gap-x-12 xl:grid-cols-5'
 
   return (
     <div className="min-h-screen pb-20">
@@ -737,7 +745,7 @@ export default function App() {
       />
       <Marquee items={artistNames} />
 
-      <main className="mx-auto max-w-5xl space-y-12 px-5 pt-14">
+      <main className="mx-auto max-w-[88rem] sm:px-8 lg:px-14 space-y-12 px-5 pt-14">
         <InstallBanner mode={install.mode} onInstall={install.install} onDismiss={install.dismiss} />
         {room && (
           <RoomBar
@@ -941,7 +949,7 @@ export default function App() {
           onSetPhoto={setPhoto}
           onSetArtist={setArtist}
           myArtists={pickerArtists}
-          myDiscs={myDiscs}
+          myDiscs={myDiscs.filter((d) => d.status === 'owned')}
           onSetTurntable={(value) => auth.updateProfile({ turntable: value })}
           onRemovePhoto={removePhoto}
           onChangeEmail={auth.changeEmail}

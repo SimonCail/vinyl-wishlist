@@ -42,7 +42,7 @@ export default function Hero({ count, context, topRight, compact = false, disc =
         </svg>
       </div>
 
-      <div className="relative mx-auto max-w-5xl px-5">
+      <div className="relative mx-auto max-w-[88rem] sm:px-8 lg:px-14 px-5">
         <div className="flex items-center justify-between gap-3 py-4">
           <span className="hidden whitespace-nowrap font-mono text-xs text-ink/70 sm:inline">
             vinyl-wishlist{count != null && ` · ${String(count).padStart(3, '0')}`}
@@ -57,12 +57,12 @@ export default function Hero({ count, context, topRight, compact = false, disc =
                 <AvatarStack members={context.members} size={30} />
                 <span className="min-w-0 truncate">Salon · {context.name}</span>
               </p>
-              <h1 className="font-display animate-fade-up text-[clamp(3.5rem,14vw,9.5rem)] font-black uppercase leading-[0.84]">
+              <h1 className="font-display animate-fade-up text-[clamp(3.5rem,14vw,9.5rem)] xl:text-[clamp(9.5rem,10vw,12.5rem)] font-black uppercase leading-[0.84]">
                 Les disques
                 <br />
                 qu'on veut.
               </h1>
-              <p className="animate-fade-up mt-6 max-w-sm text-ink/80" style={{ animationDelay: '120ms' }}>
+              <p className="animate-fade-up mt-6 max-w-sm text-ink/80 lg:max-w-md lg:text-lg" style={{ animationDelay: '120ms' }}>
                 Vos souhaits et vos collections, réunis. Chacun garde sa liste
                 perso, ici on voit tout ensemble.
               </p>
@@ -73,12 +73,12 @@ export default function Hero({ count, context, topRight, compact = false, disc =
               <p className="animate-fade-up mb-4 font-mono text-xs uppercase tracking-[0.15em] text-ink/70">
                 Ma liste · {context.me.name}
               </p>
-              <h1 className="font-display animate-fade-up text-[clamp(3.5rem,14vw,9.5rem)] font-black uppercase leading-[0.84]">
+              <h1 className="font-display animate-fade-up text-[clamp(3.5rem,14vw,9.5rem)] xl:text-[clamp(9.5rem,10vw,12.5rem)] font-black uppercase leading-[0.84]">
                 Mes
                 <br />
                 disques.
               </h1>
-              <p className="animate-fade-up mt-6 max-w-sm text-ink/80" style={{ animationDelay: '120ms' }}>
+              <p className="animate-fade-up mt-6 max-w-sm text-ink/80 lg:max-w-md lg:text-lg" style={{ animationDelay: '120ms' }}>
                 Ce que tu veux, ce que tu as déjà. Ta liste te suit dans tous
                 les salons que tu rejoins.
               </p>
@@ -86,12 +86,12 @@ export default function Hero({ count, context, topRight, compact = false, disc =
             </>
           ) : (
             <>
-              <h1 className="font-display animate-fade-up text-[clamp(3.5rem,14vw,9.5rem)] font-black uppercase leading-[0.84]">
+              <h1 className="font-display animate-fade-up text-[clamp(3.5rem,14vw,9.5rem)] xl:text-[clamp(9.5rem,10vw,12.5rem)] font-black uppercase leading-[0.84]">
                 Les disques
                 <br />
                 qu'on veut.
               </h1>
-              <p className="animate-fade-up mt-6 max-w-sm text-ink/80" style={{ animationDelay: '120ms' }}>
+              <p className="animate-fade-up mt-6 max-w-sm text-ink/80 lg:max-w-md lg:text-lg" style={{ animationDelay: '120ms' }}>
                 Ta liste de souhaits et ta collection de vinyles. Rejoins le
                 salon d'un proche pour tout mettre en commun.
               </p>

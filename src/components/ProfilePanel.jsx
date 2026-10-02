@@ -35,7 +35,9 @@ function TurntableSettings({ value, myDiscs, onChange, offline }) {
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(null) // clé en cours d'enregistrement
   const [error, setError] = useState(null)
-  const mode = value?.mode ?? 'classic'
+    // Un disque choisi qui n'est plus dans la collection compte comme « Classique »
+  const stale = value?.mode === 'disc' && !myDiscs.some((d) => d.key === value.key)
+  const mode = stale ? 'classic' : value?.mode ?? 'classic'
 
   const discs = useMemo(() => {
     const q = norm(filter.trim())
@@ -89,7 +91,7 @@ function TurntableSettings({ value, myDiscs, onChange, offline }) {
       {myDiscs.length > 0 && (
         <div className="mt-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-medium text-muted">Ou choisis un de tes disques</p>
+            <p className="text-xs font-medium text-muted">Ou choisis un disque de ta collection</p>
             {myDiscs.length > 12 && (
               <input
                 value={filter}
@@ -130,6 +132,11 @@ function TurntableSettings({ value, myDiscs, onChange, offline }) {
             {discs.length === 0 && <li className="col-span-full py-4 text-center text-sm text-muted">Aucun disque avec pochette ne correspond.</li>}
           </ul>
         </div>
+      )}
+      {myDiscs.length === 0 && (
+        <p className="mt-4 text-sm text-muted">
+          Ajoute des disques à ta collection (« Je l’ai ») pour pouvoir les poser sur la platine.
+        </p>
       )}
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
     </div>
