@@ -361,6 +361,7 @@ export function getDetails(item) {
         lowest_price: d.lowest_price ?? null,
         num_for_sale: d.num_for_sale ?? null,
         cover_url: primaryImage(d),
+        barcode: (d.identifiers || []).find((i) => i.type === 'Barcode')?.value ?? null,
         tracklist: (d.tracklist || []).map((t) => ({
           position: t.position,
           title: t.title,

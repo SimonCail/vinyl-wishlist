@@ -29,6 +29,7 @@ import Toasts from './components/Toasts'
 import InstallBanner from './components/InstallBanner'
 import OfflineBanner from './components/OfflineBanner'
 import { RoomPicker, RoomBar } from './components/Rooms'
+import RoomSettings from './components/RoomSettings'
 import { Avatar } from './components/Avatar'
 import { ConfirmDialog, NoteDialog } from './components/Dialogs'
 import { ShareIcon } from './components/Icons'
@@ -79,6 +80,7 @@ export default function App() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [scannerOpen, setScannerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [roomSettingsOpen, setRoomSettingsOpen] = useState(false)
 
   const room = contextId !== 'me' ? rooms.find((r) => r.id === contextId) ?? null : null
 
@@ -147,6 +149,12 @@ export default function App() {
           reloadRooms()
           loadVinyls()
         }
+      )
+      // Un salon renommé, recoloré, avec un nouveau code ou un nouveau responsable
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'rooms' },
+        () => reloadRooms()
       )
       .subscribe()
 
@@ -465,6 +473,27 @@ export default function App() {
     toast(`Tu as quitté « ${target.name} »`)
   }
 
+  // Réglages du salon (réservés au responsable) : on recharge les disques
+  // quand la liste des membres change, pour retirer ceux d'un membre parti
+  const roomSettingsActions = {
+    update: roomActions.update,
+    regenerateCode: roomActions.regenerateCode,
+    transfer: roomActions.transfer,
+    removeMember: async (roomId, memberId) => {
+      const res = await roomActions.removeMember(roomId, memberId)
+      if (!res.error) loadVinyls()
+      return res
+    },
+    remove: async (roomId) => {
+      const res = await roomActions.remove(roomId)
+      if (!res.error) {
+        selectContext('me')
+        loadVinyls()
+      }
+      return res
+    },
+  }
+
   async function copyInvite() {
     const ok = await copyToClipboard(inviteUrl(room.code))
     toast(
@@ -613,6 +642,24 @@ export default function App() {
   }, [items])
   const detailVinyl = detailKey ? all.find((v) => v.key === detailKey) : null
 
+  // Pochettes proposées pour le salon : celles des disques de ses membres.
+  // (Dans un salon qui a une pochette, c'est elle qui tourne sur la platine du haut.)
+  const roomCovers = useMemo(() => {
+    if (!room) return []
+    const ids = new Set(room.members.map((m) => m.id))
+    const seen = new Set()
+    return items
+      .filter((v) => ids.has(v.owner_id) && v.cover_url)
+      .sort((a, b) => (a.status === b.status ? 0 : a.status === 'owned' ? -1 : 1))
+      .filter((v) => {
+        const key = itemKey(v)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .map((v) => ({ key: itemKey(v), cover_url: v.cover_url, title: v.title, artist: v.artist }))
+  }, [room, items])
+
   function resetFilters() {
     setSearch('')
     setGenre('')
@@ -715,7 +762,7 @@ export default function App() {
         count={lists.wish.length + lists.owned.length}
         context={context}
         compact={!!room}
-        disc={platine}
+        disc={room?.cover_url ? { cover_url: room.cover_url } : platine}
         topRight={
           <div className="flex items-center gap-2.5">
             {/* Jour / nuit */}
@@ -753,6 +800,7 @@ export default function App() {
             meId={userId}
             onCopyInvite={copyInvite}
             onLeave={() => setLeaveTarget(room)}
+            onManage={() => setRoomSettingsOpen(true)}
           />
         )}
         <SearchPanel
@@ -964,6 +1012,18 @@ export default function App() {
           onToast={toast}
         />
       )}
+      {roomSettingsOpen && room && room.owner_id === userId && (
+        <RoomSettings
+          room={room}
+          meId={userId}
+          covers={roomCovers}
+          actions={roomSettingsActions}
+          onCopyInvite={copyInvite}
+          onClose={() => setRoomSettingsOpen(false)}
+          onToast={toast}
+          offline={!online}
+        />
+      )}
       {noteTarget && (
         <NoteDialog vinyl={noteTarget} onConfirm={confirmNote} onClose={() => setNoteTarget(null)} />
       )}
@@ -981,7 +1041,13 @@ export default function App() {
       {leaveTarget && (
         <ConfirmDialog
           title="Quitter ce salon ?"
-          message={`Tu ne verras plus les disques des autres membres de « ${leaveTarget.name} ». Ta liste perso ne change pas. Pour revenir, il faudra le code.`}
+          message={`Tu ne verras plus les disques des autres membres de « ${leaveTarget.name} ». Ta liste perso ne change pas. Pour revenir, il faudra le code.${
+            leaveTarget.owner_id === userId && leaveTarget.members.length > 1
+              ? ' Tu es responsable : le membre le plus ancien prendra le relais.'
+              : leaveTarget.members.length <= 1
+                ? ' Tu es le dernier membre : le salon sera supprimé.'
+                : ''
+          }`}
           confirmLabel="Quitter"
           onConfirm={confirmLeave}
           onClose={() => setLeaveTarget(null)}

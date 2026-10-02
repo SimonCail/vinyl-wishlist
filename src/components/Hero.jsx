@@ -1,5 +1,6 @@
 import { AvatarStack } from './Avatar'
 import SpinningDisc from './SpinningDisc'
+import { RoomCover, roomColor } from './Rooms'
 
 // Petite mention du disque posé sur la platine
 function NowSpinning({ disc }) {
@@ -16,7 +17,8 @@ function NowSpinning({ disc }) {
 }
 
 // En-tête : platine animée + titre affiche. Le texte s'adapte à l'espace affiché.
-// disc : { cover_url, title, artist } du disque choisi dans le profil (sinon étiquette classique)
+// disc : { cover_url, title, artist } du disque choisi dans le profil (sinon étiquette classique).
+// Dans un salon, l'étiquette prend la couleur du salon.
 export default function Hero({ count, context, topRight, compact = false, disc = null }) {
   const isRoom = context?.kind === 'room'
   const isMe = context?.kind === 'me'
@@ -29,7 +31,7 @@ export default function Hero({ count, context, topRight, compact = false, disc =
       >
         <SpinningDisc
           cover={disc?.cover_url}
-          color={isRoom ? '#f1c04e' : '#ec5b3e'}
+          color={isRoom ? roomColor(context) : '#ec5b3e'}
           className="h-full w-full"
         />
         <svg viewBox="0 0 100 100" fill="none" className="absolute inset-0 h-full w-full overflow-visible">
@@ -54,8 +56,9 @@ export default function Hero({ count, context, topRight, compact = false, disc =
           {isRoom ? (
             <>
               <p className="animate-fade-up mb-4 flex items-center gap-3 font-mono text-xs uppercase tracking-[0.15em] text-ink/70">
-                <AvatarStack members={context.members} size={30} />
+                <RoomCover room={context} size={30} className="ring-2 ring-ink/40" />
                 <span className="min-w-0 truncate">Salon · {context.name}</span>
+                <AvatarStack members={context.members} size={24} />
               </p>
               <h1 className="font-display animate-fade-up text-[clamp(3.5rem,14vw,9.5rem)] xl:text-[clamp(9.5rem,10vw,12.5rem)] font-black uppercase leading-[0.84]">
                 Les disques

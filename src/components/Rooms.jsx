@@ -2,6 +2,53 @@ import { useEffect, useRef, useState } from 'react'
 import { Avatar, AvatarStack } from './Avatar'
 import { CheckIcon, ChevronIcon, PlusIcon, CopyIcon, CloseIcon } from './Icons'
 
+// Couleurs proposées pour un salon (celles du site)
+export const ROOM_COLORS = ['#ec5b3e', '#e58a4e', '#f1c04e', '#b9cf5a', '#6fbf98', '#6aa6d6', '#f09aaa']
+
+// Couleur d'un salon : celle choisie par le responsable, sinon une couleur
+// tirée de son identifiant (toujours la même pour un salon donné)
+export function roomColor(room) {
+  if (room?.color) return room.color
+  let h = 0
+  for (const ch of String(room?.id || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return ROOM_COLORS[h % ROOM_COLORS.length]
+}
+
+// Pochette d'un salon : l'image choisie, sinon un carré à sa couleur avec l'initiale
+export function RoomCover({ room, size = 36, className = '' }) {
+  const [failed, setFailed] = useState(null)
+  const showImage = room.cover_url && failed !== room.cover_url
+  return (
+    <span
+      aria-hidden="true"
+      className={`keep-day relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-lg font-display font-black uppercase text-paper shadow-[0_4px_12px_-6px_rgba(0,0,0,0.5)] ${className}`}
+      style={{ width: size, height: size, fontSize: size * 0.46, backgroundColor: roomColor(room) }}
+    >
+      {showImage ? (
+        <img
+          src={room.cover_url}
+          alt=""
+          loading="lazy"
+          draggable="false"
+          onError={() => setFailed(room.cover_url)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        (room.name || '?').trim()[0]
+      )}
+    </span>
+  )
+}
+
+// Petite couronne : le responsable du salon
+export function CrownIcon(p) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true" {...p}>
+      <path d="M3 8.5 7.5 12 12 5l4.5 7L21 8.5 19 18H5L3 8.5Z" />
+    </svg>
+  )
+}
+
 // Petit disque à ta couleur : symbole de « Ma liste »
 function MyDisc({ color, size }) {
   return (
@@ -88,7 +135,7 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
         }`}
       >
         {isRoom ? (
-          <AvatarStack members={current.members} size={30} />
+          <RoomCover room={current} size={30} className="rounded-full" />
         ) : (
           <MyDisc color={me.color} size={30} />
         )}
@@ -119,11 +166,19 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
           <div className="nice-scroll max-h-[40vh] overflow-y-auto">
             {rooms.map((r) => (
               <Row key={r.id} active={isRoom && current.id === r.id} onClick={() => choose(r.id)}>
-                <AvatarStack members={r.members} size={26} />
+                <RoomCover room={r} size={38} />
                 <span className="min-w-0">
-                  <span className="block truncate font-display text-base font-bold leading-tight">{r.name}</span>
-                  <span className="block font-mono text-[11px] text-muted">
-                    {r.members.length} membre{r.members.length > 1 ? 's' : ''} · code {r.code}
+                  <span className="flex items-center gap-1.5">
+                    <span className="truncate font-display text-base font-bold leading-tight">{r.name}</span>
+                    {r.owner_id === me.id && (
+                      <span title="Tu es responsable de ce salon" className="shrink-0 text-accent">
+                        <CrownIcon />
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-muted">
+                    <AvatarStack members={r.members} size={16} max={5} />
+                    {r.members.length} membre{r.members.length > 1 ? 's' : ''}
                   </span>
                 </span>
               </Row>
@@ -224,27 +279,58 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
   )
 }
 
-// Encart d'un salon : membres + code / lien d'invitation + quitter
-export function RoomBar({ room, meId, onCopyInvite, onLeave }) {
+// Encart d'un salon : pochette, nom, membres, code d'invitation,
+// « Gérer » pour le responsable et « Quitter » pour tout le monde
+export function RoomBar({ room, meId, onCopyInvite, onLeave, onManage }) {
+  const isOwner = room.owner_id === meId
   return (
     <div className="animate-pop flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-surface px-5 py-4 shadow-[0_10px_30px_-18px_rgba(27,36,32,0.4)]">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-        {room.members.map((m) => (
-          <span key={m.id} className="flex items-center gap-2 text-sm">
-            <Avatar member={m} size={26} ring={false} />
-            <span className="font-medium">{m.id === meId ? `${m.name} (toi)` : m.name}</span>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-3">
+        <span className="flex min-w-0 items-center gap-3">
+          <RoomCover room={room} size={44} />
+          <span className="min-w-0">
+            <span className="block truncate font-display text-xl font-black uppercase leading-none">{room.name}</span>
+            <span className="mt-1 block font-mono text-[11px] text-muted">
+              {room.members.length} membre{room.members.length > 1 ? 's' : ''}
+            </span>
           </span>
-        ))}
+        </span>
+        <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {room.members.map((m) => (
+            <span key={m.id} className="flex items-center gap-2 text-sm">
+              <span className="relative">
+                <Avatar member={m} size={26} ring={false} />
+                {m.id === room.owner_id && (
+                  <span
+                    title="Responsable du salon"
+                    className="keep-day absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-sun text-paper ring-2 ring-surface"
+                  >
+                    <CrownIcon width={10} height={10} />
+                  </span>
+                )}
+              </span>
+              <span className="font-medium">{m.id === meId ? `${m.name} (toi)` : m.name}</span>
+            </span>
+          ))}
+        </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted">Inviter</span>
         <button
           onClick={onCopyInvite}
+          aria-label={`Copier le lien d'invitation (code ${room.code})`}
           title="Copier le lien d'invitation"
           className="flex items-center gap-2 rounded-full border border-dashed border-accent/60 px-3 py-1 font-mono text-sm font-medium tracking-wider text-accent transition hover:bg-accent/10"
         >
           {room.code} <CopyIcon width={14} height={14} />
         </button>
+        {isOwner && onManage && (
+          <button
+            onClick={onManage}
+            className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1 text-xs font-bold text-ink transition hover:bg-accent-soft"
+          >
+            <CrownIcon width={12} height={12} /> Gérer
+          </button>
+        )}
         <button
           onClick={onLeave}
           className="rounded-full px-2.5 py-1 text-xs text-muted transition hover:bg-red-500/10 hover:text-red-500"

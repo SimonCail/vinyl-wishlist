@@ -5,6 +5,7 @@ import { AvatarStack } from './Avatar'
 import { getDetails, peekDetails, discogsUrl } from '../lib/discogs'
 import { formatPrice } from '../lib/format'
 import { colorFor } from '../lib/palette'
+import StoreLinks from './StoreLinks'
 
 function PlayIcon(p) {
   return (
@@ -280,6 +281,7 @@ export default function VinylDetail({
                 Voir les offres <ArrowIcon width={15} height={15} />
               </a>
             </section>
+            <StoreLinks vinyl={vinyl} barcode={details?.barcode} />
 
             {(genres.length > 0 || styles.length > 0) && (
               <div className="flex flex-wrap gap-2">
