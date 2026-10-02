@@ -96,10 +96,13 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
     const place = () => {
       const r = rootRef.current?.getBoundingClientRect()
       if (!r) return
-      setPos({
-        top: r.bottom + window.scrollY + 8,
-        right: document.documentElement.clientWidth - r.right,
-      })
+      // Sur petit écran (iPhone SE…), le menu prend toute la largeur moins
+      // une marge, et on le décale pour qu'il ne sorte jamais de l'écran
+      const vw = document.documentElement.clientWidth
+      const margin = 12
+      const width = Math.min(352, vw - margin * 2)
+      const right = Math.max(margin, Math.min(vw - r.right, vw - margin - width))
+      setPos({ top: r.bottom + window.scrollY + 8, right, width })
     }
     place()
     window.addEventListener('resize', place)
@@ -172,8 +175,8 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
         <div
           ref={menuRef}
           role="menu"
-          style={{ top: pos.top, right: pos.right }}
-          className="animate-pop absolute z-40 w-[min(22rem,calc(100vw-2.5rem))] rounded-2xl border border-line bg-surface p-2 text-paper shadow-[0_24px_60px_-20px_rgba(27,36,32,0.6)]"
+          style={{ top: pos.top, right: pos.right, width: pos.width }}
+          className="animate-pop absolute z-40 rounded-2xl border border-line bg-surface p-2 text-paper shadow-[0_24px_60px_-20px_rgba(27,36,32,0.6)]"
         >
           <Row active={!isRoom} onClick={() => choose('me')}>
             <MyDisc color={me.color} size={34} />
