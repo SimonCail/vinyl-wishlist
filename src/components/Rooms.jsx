@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Avatar, AvatarStack } from './Avatar'
 import { CheckIcon, ChevronIcon, PlusIcon, CopyIcon, CloseIcon } from './Icons'
 
@@ -84,11 +85,32 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const rootRef = useRef(null)
+  const menuRef = useRef(null)
+  const [pos, setPos] = useState(null)
+
+  // Le menu est rendu à la racine de la page (et pas dans le bandeau vert,
+  // qui garde les couleurs du mode jour) : il suit ainsi le mode sombre.
+  // On le place sous le bouton.
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const r = rootRef.current?.getBoundingClientRect()
+      if (!r) return
+      setPos({
+        top: r.bottom + window.scrollY + 8,
+        right: document.documentElement.clientWidth - r.right,
+      })
+    }
+    place()
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [open])
 
   // Fermeture au clic en dehors et avec Échap
   useEffect(() => {
     if (!open) return
-    const onDown = (e) => !rootRef.current?.contains(e.target) && setOpen(false)
+    const onDown = (e) =>
+      !rootRef.current?.contains(e.target) && !menuRef.current?.contains(e.target) && setOpen(false)
     const onKey = (e) => e.key === 'Escape' && setOpen(false)
     document.addEventListener('pointerdown', onDown)
     window.addEventListener('keydown', onKey)
@@ -131,7 +153,10 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
         aria-expanded={open}
         aria-haspopup="menu"
         className={`flex h-11 items-center gap-2.5 rounded-full border pl-1.5 pr-3.5 text-sm font-medium transition ${
-          open ? 'border-ink bg-ink text-accent' : 'border-ink/40 text-ink hover:bg-ink hover:text-accent'
+          open
+            ? // En mode sombre : légèrement éclairé au lieu d'une pastille crème
+              'border-ink bg-ink text-accent [:root[data-theme=dark]_&]:bg-ink/15 [:root[data-theme=dark]_&]:text-ink'
+            : 'border-ink/40 text-ink hover:bg-ink hover:text-accent [:root[data-theme=dark]_&]:hover:bg-ink/15 [:root[data-theme=dark]_&]:hover:text-ink'
         }`}
       >
         {isRoom ? (
@@ -143,10 +168,12 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
         <ChevronIcon width={14} height={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open && (
+      {open && pos && createPortal(
         <div
+          ref={menuRef}
           role="menu"
-          className="animate-pop absolute right-0 top-full z-30 mt-2 w-[min(22rem,calc(100vw-2.5rem))] rounded-2xl border border-line bg-surface p-2 text-paper shadow-[0_24px_60px_-20px_rgba(27,36,32,0.6)]"
+          style={{ top: pos.top, right: pos.right }}
+          className="animate-pop absolute z-40 w-[min(22rem,calc(100vw-2.5rem))] rounded-2xl border border-line bg-surface p-2 text-paper shadow-[0_24px_60px_-20px_rgba(27,36,32,0.6)]"
         >
           <Row active={!isRoom} onClick={() => choose('me')}>
             <MyDisc color={me.color} size={34} />
@@ -273,7 +300,8 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
             {error && <p className="px-2 pb-2 pt-1 text-sm text-red-500">{error}</p>}
             {offline && <p className="px-2 pb-2 text-xs text-muted">Indisponible hors-ligne.</p>}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
