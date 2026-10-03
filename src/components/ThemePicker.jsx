@@ -14,17 +14,16 @@ export const MoonIcon = (p) => (
   </svg>
 )
 
-// Mini page : bandeau vert + ruban corail + fond, aux couleurs du thème
+// Mini page : bandeau couleur du site + fond, aux couleurs du thème
 function Preview({ bg, text, line }) {
   return (
     <span className="block overflow-hidden rounded-lg" style={{ background: bg }}>
-      <span className="relative block h-7 bg-[#1d4a3a]">
+      <span className="relative block h-7" style={{ background: 'var(--user-accent-bg, #1d4a3a)' }}>
         <span className="absolute -right-2 top-1.5 h-9 w-9 rounded-full bg-[#111] shadow-[inset_0_0_0_9px_#1a1a1c]">
           <span className="absolute inset-[34%] rounded-full bg-[#ec5b3e]" />
         </span>
         <span className="absolute left-2 top-2 h-1.5 w-8 rounded-full bg-[#f5f1e8]/80" />
       </span>
-      <span className="block h-1.5 -rotate-2 bg-[#ec5b3e]" />
       <span className="flex gap-1.5 p-2">
         {[0, 1, 2].map((i) => (
           <span key={i} className="block flex-1">

@@ -3,18 +3,20 @@ import { supabase } from './lib/supabase'
 import { useToasts } from './hooks/useToasts'
 import { useAuth } from './hooks/useAuth'
 import { useRooms, previewRoom } from './hooks/useRooms'
+import { useFriends } from './hooks/useFriends'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { useInstallPrompt } from './hooks/useInstallPrompt'
 import {
   mergeItems, filterByPerson, filterAndSort, getGenres, getTotals,
 } from './lib/listUtils'
 import { getDetails, itemKey } from './lib/discogs'
-import { readCache, writeCache, readJSON, writeJSON, CONTEXT_KEY } from './lib/cache'
+import { readCache, writeCache } from './lib/cache'
 import { copyToClipboard } from './lib/share'
+import { applyAccent, restoreAccent } from './lib/accent'
 import Hero from './components/Hero'
 import { ThemeToggle } from './components/ThemePicker'
-import Marquee from './components/Marquee'
 import ShelfTabs from './components/ShelfTabs'
+import Pagination, { usePageSize } from './components/Pagination'
 import ListSummary from './components/ListSummary'
 import ListToolbar from './components/ListToolbar'
 import SearchPanel from './components/SearchPanel'
@@ -28,9 +30,15 @@ import DiscogsImport from './components/DiscogsImport'
 import Toasts from './components/Toasts'
 import InstallBanner from './components/InstallBanner'
 import OfflineBanner from './components/OfflineBanner'
-import { RoomPicker, RoomBar } from './components/Rooms'
+import { RoomCover, CrownIcon, roomColor } from './components/Rooms'
 import RoomSettings from './components/RoomSettings'
-import { Avatar } from './components/Avatar'
+import FriendsPanel from './components/Friends'
+import RoomsPage from './components/RoomsPage'
+import { Messenger } from './components/Messages'
+import { TopBar, TabBar, PageHeader, headerBtn, headerBtnSolid, sectionOf } from './components/Layout'
+import { useMessages, vinylPayload } from './hooks/useMessages'
+import { useRoute, matchRoute, paths } from './lib/router'
+import { Avatar, AvatarStack } from './components/Avatar'
 import { ConfirmDialog, NoteDialog } from './components/Dialogs'
 import { ShareIcon } from './components/Icons'
 
@@ -50,10 +58,18 @@ function clearInviteFromUrl() {
   window.history.replaceState(null, '', url.pathname + url.search + url.hash)
 }
 
+// La couleur du site suit celle du profil (dernière connue, en attendant le profil)
+restoreAccent()
+
 export default function App() {
   const auth = useAuth()
   const { me, user } = auth
   const userId = user?.id ?? null
+
+  // Couleur du site = couleur choisie dans le profil
+  useEffect(() => {
+    if (me?.color) applyAccent(me.color)
+  }, [me?.color])
   const { rooms, loaded: roomsLoaded, reload: reloadRooms, ...roomActions } = useRooms(userId)
   const { toasts, toast } = useToasts()
   const online = useOnlineStatus()
@@ -62,7 +78,12 @@ export default function App() {
 
   const [items, setItems] = useState(readCache)
   const [loading, setLoading] = useState(() => readCache().length === 0)
-  const [contextId, setContextId] = useState(() => readJSON(CONTEXT_KEY, 'me'))
+  // Page affichée (voir lib/router.js)
+  const { path, navigate } = useRoute()
+  const route = matchRoute(path)
+  // Espace dont on montre les disques : 'me', l'id d'un salon, ou 'friend:<id>'
+  const contextId = route.name === 'room' ? route.id : route.name === 'friend' ? `friend:${route.id}` : 'me'
+  const isListPage = route.name === 'home' || route.name === 'room' || route.name === 'friend'
   const [tab, setTab] = useState('wish')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState('recent')
@@ -82,20 +103,30 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false)
   const [roomSettingsOpen, setRoomSettingsOpen] = useState(false)
 
-  const room = contextId !== 'me' ? rooms.find((r) => r.id === contextId) ?? null : null
+  // Espace affiché : 'me', l'id d'un salon, ou 'friend:<id>' (les disques d'un ami)
+  const friendsApi = useFriends(userId)
+  const reloadFriends = friendsApi.reload
+  const messagesApi = useMessages(userId)
+  const friendId = contextId.startsWith('friend:') ? contextId.slice(7) : null
+  const friend = friendId ? friendsApi.friends.find((f) => f.id === friendId) ?? null : null
+  const room = contextId !== 'me' && !friendId ? rooms.find((r) => r.id === contextId) ?? null : null
 
-  // --- Espace affiché (ma liste ou un salon), mémorisé sur l'appareil ---
+  // Nouvelle page : on repart du haut
   useEffect(() => {
-    writeJSON(CONTEXT_KEY, contextId)
-  }, [contextId])
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }, [path])
 
   // Le salon a disparu (quitté depuis un autre appareil…) -> retour à ma liste
   useEffect(() => {
-    if (contextId !== 'me' && roomsLoaded && !room) setContextId('me')
-  }, [contextId, roomsLoaded, room])
+    if (friendId) {
+      // L'ami a disparu (retiré depuis un autre appareil…) -> retour à ma liste
+      if (friendsApi.loaded && !friend) navigate(paths.friends, { replace: true })
+    } else if (contextId !== 'me' && roomsLoaded && !room) navigate(paths.rooms, { replace: true })
+  }, [contextId, roomsLoaded, room, friendId, friend, friendsApi.loaded, navigate])
 
+  // Aller voir une liste : 'me', l'id d'un salon, ou 'friend:<id>'
   function selectContext(id) {
-    setContextId(id)
+    navigate(id === 'me' ? paths.home : id.startsWith('friend:') ? paths.friend(id.slice(7)) : paths.room(id))
     setPerson('')
     setGenre('')
     setSearch('')
@@ -156,11 +187,21 @@ export default function App() {
         { event: '*', schema: 'public', table: 'rooms' },
         () => reloadRooms()
       )
+      // Demande d'ami reçue, acceptée ou retirée : la liste d'amis et les disques visibles changent
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'friendships' },
+        () => {
+          reloadFriends()
+          loadVinyls()
+        }
+      )
       .subscribe()
 
     // Pendant une coupure ou une mise en veille, des événements ont pu être manqués
     const resync = () => {
       reloadRooms()
+      reloadFriends()
       loadVinyls()
     }
     const onVisible = () => document.visibilityState === 'visible' && resync()
@@ -172,16 +213,16 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisible)
       supabase.removeChannel(channel)
     }
-  }, [userId, loadVinyls, reloadRooms])
+  }, [userId, loadVinyls, reloadRooms, reloadFriends])
 
   // Déconnecté : on vide l'écran
   useEffect(() => {
     if (auth.ready && !userId) {
       setItems([])
       setLoading(false)
-      setContextId('me')
+      navigate(paths.home, { replace: true })
     }
-  }, [auth.ready, userId])
+  }, [auth.ready, userId, navigate])
 
   // Mémorise la liste pour le mode hors-ligne
   useEffect(() => {
@@ -236,6 +277,77 @@ export default function App() {
 
   // --- Ma liste perso (la même dans tous les espaces) ---
   const myItems = useMemo(() => items.filter((v) => v.owner_id === userId), [items, userId])
+  // Mes disques à partager dans un message (souhaits et collection)
+  const myVinylsToShare = useMemo(
+    () => myItems.map((v) => ({ ...vinylPayload(v), status: v.status })),
+    [myItems]
+  )
+  // Pochettes des derniers souhaits de chacun (pour donner des idées dans les messages)
+  const coversByOwner = useMemo(() => {
+    const map = new Map()
+    for (const v of items) {
+      if (v.status !== 'wish' || !v.cover_url) continue
+      const list = map.get(v.owner_id) ?? []
+      if (list.length < 3) list.push(v.cover_url)
+      map.set(v.owner_id, list)
+    }
+    return map
+  }, [items])
+  const coversOf = useCallback((id) => coversByOwner.get(id) ?? [], [coversByOwner])
+
+  // Page Amis : chiffres de chacun, disques en commun, derniers ajouts
+  const friendStats = useMemo(() => {
+    const map = new Map()
+    const myKeys = new Set(myItems.map((v) => itemKey(v)))
+    for (const v of items) {
+      if (v.owner_id === userId) continue
+      const st = map.get(v.owner_id) ?? { wish: 0, owned: 0, covers: [], ownedCovers: [], common: 0 }
+      st[v.status === 'owned' ? 'owned' : 'wish']++
+      if (v.cover_url) {
+        const list = v.status === 'owned' ? st.ownedCovers : st.covers
+        if (list.length < 4) list.push(v.cover_url)
+      }
+      if (myKeys.has(itemKey(v))) st.common++
+      map.set(v.owner_id, st)
+    }
+    return map
+  }, [items, myItems, userId])
+  const statsOf = useCallback((id) => {
+    const st = friendStats.get(id)
+    if (!st) return { wish: 0, owned: 0, covers: [], common: 0 }
+    return { ...st, covers: st.covers.length ? st.covers : st.ownedCovers }
+  }, [friendStats])
+  const friendActivity = useMemo(() => {
+    const byId = new Map(friendsApi.friends.map((f) => [f.id, f]))
+    return items
+      .filter((v) => byId.has(v.owner_id))
+      .sort((a, b) => new Date(b.owned_at || b.created_at) - new Date(a.owned_at || a.created_at))
+      .slice(0, 12)
+      .map((vinyl) => ({ vinyl, friend: byId.get(vinyl.owner_id) }))
+  }, [items, friendsApi.friends])
+
+  // Inviter quelqu'un : partage du lien de l'app (ou copie)
+  async function inviteFriend() {
+    const url = window.location.origin
+    const text = `Rejoins-moi sur Vinyl Wishlist pour partager nos listes de vinyles : ajoute « ${me.name} » en ami.`
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Vinyl Wishlist', text, url })
+        return
+      } catch {
+        // partage annulé : on copie le lien à la place
+      }
+    }
+    const ok = await copyToClipboard(`${text} ${url}`)
+    toast(ok ? 'Lien copié, envoie-le à qui tu veux' : url)
+  }
+  // Tous les profils connus (amis, demandes, membres de mes salons) : pour les messages
+  const people = useMemo(() => {
+    const map = new Map()
+    rooms.forEach((r) => r.members.forEach((m) => map.set(m.id, m)))
+    ;[...friendsApi.outgoing, ...friendsApi.incoming, ...friendsApi.friends].forEach((p) => map.set(p.id, p))
+    return map
+  }, [rooms, friendsApi.friends, friendsApi.incoming, friendsApi.outgoing])
   const myByKey = useMemo(() => new Map(myItems.map((v) => [itemKey(v), v])), [myItems])
   const statusOf = (item) => myByKey.get(itemKey(item))?.status ?? null
 
@@ -477,6 +589,7 @@ export default function App() {
   // quand la liste des membres change, pour retirer ceux d'un membre parti
   const roomSettingsActions = {
     update: roomActions.update,
+    uploadCover: roomActions.uploadCover,
     regenerateCode: roomActions.regenerateCode,
     transfer: roomActions.transfer,
     removeMember: async (roomId, memberId) => {
@@ -554,6 +667,7 @@ export default function App() {
     if (!err) {
       setProfileOpen(false)
       selectContext('me')
+      applyAccent(null)
       toast('Ton compte a été supprimé')
     }
     return err
@@ -562,12 +676,18 @@ export default function App() {
   async function handleSignOut() {
     setProfileOpen(false)
     await auth.signOut()
+    applyAccent(null) // retour au vert du site
     selectContext('me')
     toast('À bientôt !')
   }
 
   // --- Données dérivées ---
-  const members = useMemo(() => (room ? room.members : me ? [me] : []), [room, me])
+  const members = useMemo(
+    () => (room ? room.members : friend ? [friend] : me ? [me] : []),
+    [room, friend, me]
+  )
+  // Liste partagée (salon) ou de quelqu'un d'autre (ami) : les disques des autres sont en lecture seule
+  const shared = !!room || !!friend
   const lists = useMemo(
     () => ({
       wish: mergeItems(items, members, 'wish', userId),
@@ -598,10 +718,26 @@ export default function App() {
     [all, activePerson, sort, search, activeGenre]
   )
   const totals = useMemo(() => getTotals(visible), [visible])
-  const artistNames = useMemo(
-    () => [...new Set([...lists.wish, ...lists.owned].map((v) => v.artist))].slice(0, 24),
-    [lists]
-  )
+
+  // Pages : on affiche les disques par paquets, avec 1, 2, 3… en bas
+  const pageSize = usePageSize()
+  const [page, setPage] = useState(1)
+  const listRef = useRef(null)
+  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize))
+  const currentPage = Math.min(page, pageCount) // ex. après une suppression sur la dernière page
+  const pageItems = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  // Retour à la page 1 quand on change d'onglet, d'espace, de tri ou de filtre
+  useEffect(() => {
+    setPage(1)
+  }, [tab, contextId, sort, search, activeGenre, activePerson])
+  function goToPage(n) {
+    setPage(n)
+    // On remonte en haut de la liste (sans repartir tout en haut du site)
+    const top = listRef.current?.getBoundingClientRect().top
+    if (top != null && top < 0) {
+      listRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
   const myCounts = {
     wish: myItems.filter((v) => v.status === 'wish').length,
     owned: myItems.filter((v) => v.status === 'owned').length,
@@ -643,7 +779,7 @@ export default function App() {
   const detailVinyl = detailKey ? all.find((v) => v.key === detailKey) : null
 
   // Pochettes proposées pour le salon : celles des disques de ses membres.
-  // (Dans un salon qui a une pochette, c'est elle qui tourne sur la platine du haut.)
+  // (Elle tourne sur la platine du haut si on n'a pas choisi de disque dans son profil.)
   const roomCovers = useMemo(() => {
     if (!room) return []
     const ids = new Set(room.members.map((m) => m.id))
@@ -735,15 +871,20 @@ export default function App() {
     )
   }
 
-  const context = room ?? { kind: 'me', me }
+  const context = room ?? (friend ? { kind: 'friend', id: friend.id, friend } : { kind: 'me', me })
   const listLabel = tab === 'wish' ? 'Souhaits' : 'Collection'
   const summaryLabel = hasFilters
     ? 'Valeur de la sélection'
     : {
-        wish: room ? 'Pour tout offrir au salon' : 'Valeur de mes souhaits',
-        owned: room ? 'Valeur de vos collections' : 'Cote de ma collection',
+        wish: room ? 'Pour tout offrir au salon' : friend ? `Pour tout offrir à ${friend.name}` : 'Valeur de mes souhaits',
+        owned: room ? 'Valeur de vos collections' : friend ? 'Cote de sa collection' : 'Cote de ma collection',
       }[tab]
-  const emptyText = {
+  const emptyText = friend
+    ? {
+        wish: [`${friend.name} n’a pas encore de souhaits`, 'Reviens plus tard, ou glisse-lui l’idée d’en ajouter.'],
+        owned: [`La collection de ${friend.name} est vide`, 'Aucun disque marqué « Je l’ai » pour l’instant.'],
+      }[tab]
+    : {
     wish: room
       ? ['Aucun souhait dans ce salon', 'Ajoute un disque avec la recherche : il apparaît chez toi et ici.']
       : ['Ton bac à souhaits est vide', 'Cherche un artiste plus haut pour ajouter ton premier disque.'],
@@ -755,54 +896,170 @@ export default function App() {
   const gridClass =
     'grid grid-cols-2 gap-x-6 gap-y-12 sm:grid-cols-3 sm:gap-x-10 md:grid-cols-4 md:gap-x-12 xl:grid-cols-5'
 
-  return (
-    <div className="min-h-screen pb-20">
-      <OfflineBanner online={online} />
-      <Hero
-        count={lists.wish.length + lists.owned.length}
-        context={context}
-        compact={!!room}
-        disc={room?.cover_url ? { cover_url: room.cover_url } : platine}
-        topRight={
-          <div className="flex items-center gap-2.5">
-            {/* Jour / nuit */}
-            <ThemeToggle />
-            {/* Où je regarde : ma liste ou un salon */}
-            <RoomPicker
-              me={me}
-              myCounts={myCounts}
-              rooms={rooms}
-              current={context}
-              onSelect={selectContext}
-              onJoin={joinRoom}
-              onCreate={createRoom}
-              offline={!online}
-            />
-            {/* Qui je suis : profil et compte */}
-            <button
-              onClick={() => setProfileOpen(true)}
-              aria-label="Mon profil"
-              title="Mon profil"
-              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-ink/50 transition hover:scale-105 hover:ring-ink"
-            >
-              <Avatar member={me} size={44} ring={false} className="block" />
-            </button>
-          </div>
-        }
-      />
-      <Marquee items={artistNames} />
+  // Barre du haut / onglets : où aller
+  const section = sectionOf(route.name)
+  const badges = { friends: friendsApi.incoming.length, messages: messagesApi.unreadTotal }
+  const goSection = (name) => navigate({ home: paths.home, rooms: paths.rooms, friends: paths.friends, messages: paths.messages }[name])
+  const chatFriend = route.name === 'chat' ? people.get(route.id) ?? null : null
+  const isMessenger = route.name === 'messages' || route.name === 'chat'
 
-      <main className="mx-auto max-w-[88rem] sm:px-8 lg:px-14 space-y-12 px-5 pt-14">
-        <InstallBanner mode={install.mode} onInstall={install.install} onDismiss={install.dismiss} />
-        {room && (
-          <RoomBar
-            room={room}
+  return (
+    <div className={`min-h-screen ${route.name === 'chat' ? 'pb-0' : isMessenger ? 'pb-24 lg:pb-0' : 'pb-28 md:pb-20'}`}>
+      <OfflineBanner online={online} />
+      <TopBar
+        section={section}
+        spinKey={path}
+        badges={badges}
+        me={me}
+        onNavigate={goSection}
+        onProfile={() => setProfileOpen(true)}
+      />
+
+      {/* --- En-tête de la page --- */}
+      {route.name === 'home' && (
+        <Hero
+          count={lists.wish.length + lists.owned.length}
+          context={context}
+          disc={platine}
+        />
+      )}
+      {room && (
+        <PageHeader
+          discColor={roomColor(room)}
+          media={
+            <button
+              onClick={() => room.owner_id === userId && setRoomSettingsOpen(true)}
+              title={room.owner_id === userId ? 'Gérer le salon' : undefined}
+              className={room.owner_id === userId ? 'block transition hover:scale-[1.03]' : 'block cursor-default'}
+            >
+              <RoomCover room={room} size={84} className="rounded-2xl ring-4 ring-ink/25 shadow-xl shadow-black/30" />
+            </button>
+          }
+          title={room.name}
+          subtitle={
+            <span className="flex items-center gap-2.5">
+              <AvatarStack members={room.members} size={26} max={6} />
+              {room.members.length} membre{room.members.length > 1 ? 's' : ''}
+              {room.owner_id === userId && (
+                <span className="flex items-center gap-1 text-ink/70">
+                  · <CrownIcon width={13} height={13} /> tu es responsable
+                </span>
+              )}
+            </span>
+          }
+          actions={
+            <>
+              <button onClick={copyInvite} className={headerBtn} aria-label={`Copier le lien d'invitation (code ${room.code})`}>
+                <span className="font-mono tracking-wider">{room.code}</span>
+              </button>
+              {room.owner_id === userId && (
+                <button onClick={() => setRoomSettingsOpen(true)} className={headerBtnSolid}>
+                  <CrownIcon width={14} height={14} /> Gérer
+                </button>
+              )}
+              <button onClick={() => setLeaveTarget(room)} className={headerBtn}>
+                Quitter
+              </button>
+            </>
+          }
+        />
+      )}
+      {friend && (
+        <PageHeader
+          discColor={friend.color}
+          media={<Avatar member={friend} size={84} ring={false} className="ring-4 ring-ink/25 shadow-xl shadow-black/30" />}
+          title={<>Chez {friend.name}</>}
+          subtitle="Ses souhaits et sa collection. Une idée de cadeau, ou un disque à ajouter à ta liste."
+          actions={
+            <button onClick={() => navigate(paths.chat(friend.id))} className={headerBtnSolid}>
+              Lui écrire
+            </button>
+          }
+        />
+      )}
+      {route.name === 'rooms' && (
+        <PageHeader
+          discColor="#6aa6d6"
+          title="Salons"
+          subtitle="Vos souhaits et vos collections mis en commun, par code."
+        />
+      )}
+      {route.name === 'friends' && (
+        <PageHeader
+          discColor="#f09aaa"
+          title="Amis"
+          subtitle="Regarde ce que veulent tes proches, et ce qu’ils ont déjà."
+        />
+      )}
+
+      <main
+        key={route.name === 'room' || route.name === 'friend' ? path : isMessenger ? 'messenger' : route.name}
+        className={isMessenger ? 'page-in' : 'page-in mx-auto max-w-[88rem] space-y-12 px-5 pt-10 sm:px-8 sm:pt-14 lg:px-14'}
+      >
+        {!isMessenger && (
+          <InstallBanner mode={install.mode} onInstall={install.install} onDismiss={install.dismiss} />
+        )}
+
+        {/* --- Salons --- */}
+        {route.name === 'rooms' && (
+          <RoomsPage
+            rooms={rooms}
             meId={userId}
-            onCopyInvite={copyInvite}
-            onLeave={() => setLeaveTarget(room)}
-            onManage={() => setRoomSettingsOpen(true)}
+            onOpen={(id) => selectContext(id)}
+            onJoin={joinRoom}
+            onCreate={createRoom}
+            offline={!online}
           />
         )}
+
+        {/* --- Amis --- */}
+        {route.name === 'friends' && (
+          <FriendsPanel
+            friends={friendsApi}
+            onOpenFriend={(id) => selectContext(`friend:${id}`)}
+            onMessage={(id) => navigate(paths.chat(id))}
+            statsOf={statsOf}
+            activity={friendActivity}
+            onInvite={inviteFriend}
+            onToast={toast}
+            offline={!online}
+          />
+        )}
+
+        {/* --- Messages : liste + conversation --- */}
+        {isMessenger && (
+          <Messenger
+            activeId={route.name === 'chat' ? route.id : null}
+            activeFriend={chatFriend}
+            conversations={messagesApi.conversations}
+            friends={friendsApi.friends}
+            people={people}
+            meId={userId}
+            missing={messagesApi.missing}
+            coversOf={coversOf}
+            onOpen={(id) => navigate(paths.chat(id), { replace: route.name === 'chat' && window.matchMedia('(min-width: 1024px)').matches })}
+            onFindFriends={() => navigate(paths.friends)}
+            threadProps={{
+              isFriend: chatFriend ? friendsApi.relationOf(chatFriend.id) === 'friend' : false,
+              messages: chatFriend ? messagesApi.thread(chatFriend.id) : [],
+              meId: userId,
+              myVinyls: myVinylsToShare,
+              statusOf,
+              onSend: messagesApi.send,
+              onRetry: messagesApi.retry,
+              onMarkRead: messagesApi.markRead,
+              onAddVinyl: (v) => addItem(v, 'wish'),
+              onBack: () => navigate(paths.messages),
+              onOpenFriend: (id) => selectContext(`friend:${id}`),
+              offline: !online,
+            }}
+          />
+        )}
+
+        {/* --- Une liste de disques : la mienne, un salon, un ami --- */}
+        {isListPage && (
+        <>
+        {!friend && (
         <SearchPanel
           statusOf={statusOf}
           onAdd={addItem}
@@ -811,7 +1068,8 @@ export default function App() {
           onScan={() => setScannerOpen(true)}
           offline={!online}
         />
-        {myItems.length < 10 && !loading && (
+        )}
+        {!friend && myItems.length < 10 && !loading && (
           <p className="-mt-8 text-sm text-muted">
             Déjà un compte Discogs ?{' '}
             <button onClick={() => setImportOpen(true)} className="font-medium text-accent underline-offset-4 hover:underline">
@@ -820,7 +1078,7 @@ export default function App() {
           </p>
         )}
 
-        <section>
+        <section ref={listRef} className="scroll-mt-4">
           <ShelfTabs
             tab={tab}
             onTab={(t) => {
@@ -918,14 +1176,15 @@ export default function App() {
               </button>
             </div>
           ) : (
+            <>
             <ul className={gridClass}>
-              {visible.map((v, i) => (
+              {pageItems.map((v, i) => (
                 <VinylCard
                   key={v.key}
                   vinyl={v}
                   index={i}
                   mode={tab}
-                  inRoom={!!room}
+                  inRoom={shared}
                   meId={userId}
                   onOpen={() => setDetailKey(v.key)}
                   onDelete={() => setDeleteTarget(v)}
@@ -936,15 +1195,25 @@ export default function App() {
                 />
               ))}
             </ul>
+            <Pagination
+              page={currentPage}
+              pageCount={pageCount}
+              total={visible.length}
+              pageSize={pageSize}
+              onPage={goToPage}
+            />
+            </>
           )}
         </section>
+        </>
+        )}
       </main>
 
       {detailVinyl && (
         <VinylDetail
           vinyl={detailVinyl}
           mode={tab}
-          inRoom={!!room}
+          inRoom={shared}
           canAdd={!statusOf(detailVinyl)}
           onSync={syncDetails}
           onClose={() => setDetailKey(null)}
@@ -957,7 +1226,13 @@ export default function App() {
       {shareOpen && (
         <ShareDialog
           vinyls={visible}
-          title={room ? `${listLabel} du salon « ${room.name} »` : tab === 'wish' ? 'Mes souhaits vinyles' : 'Ma collection de vinyles'}
+          title={
+            room
+              ? `${listLabel} du salon « ${room.name} »`
+              : friend
+                ? `${listLabel} de ${friend.name}`
+                : tab === 'wish' ? 'Mes souhaits vinyles' : 'Ma collection de vinyles'
+          }
           filtered={hasFilters}
           inviteUrl={room ? inviteUrl(room.code) : null}
           withOwners={!!room}
@@ -1055,7 +1330,12 @@ export default function App() {
       )}
       {authDialog}
 
-      <Toasts toasts={toasts} />
+      {/* Onglets du bas sur téléphone (cachés dans une conversation, qui a sa zone d'écriture) */}
+      {route.name !== 'chat' && <TabBar section={section} badges={badges} onNavigate={goSection} />}
+
+      <div className="toasts-above-tabs">
+        <Toasts toasts={toasts} />
+      </div>
     </div>
   )
 }

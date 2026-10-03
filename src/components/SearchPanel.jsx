@@ -27,6 +27,10 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
   const [pending, setPending] = useState(() => new Set()) // ajouts en cours
+  // Résultats affichés ou repliés (clic en dehors, Échap) : la recherche
+  // est gardée, il suffit de recliquer dans la barre pour les revoir
+  const [open, setOpen] = useState(true)
+  const rootRef = useRef(null)
 
   // Sert à ignorer les réponses des recherches déjà dépassées
   const requestId = useRef(0)
@@ -85,14 +89,35 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query])
 
+  // Clic ou toucher en dehors de la recherche (ou Échap) : on replie les résultats
+  const showResults = searched && open
+  useEffect(() => {
+    if (!showResults) return
+    const onDown = (e) => {
+      if (rootRef.current?.contains(e.target)) return
+      // Clic dans une fenêtre ou une notification par-dessus : on laisse ouvert
+      if (e.target.closest?.('[role="dialog"], [role="status"], [aria-live]')) return
+      setOpen(false)
+    }
+    const onKey = (e) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [showResults])
+
   function handleChange(e) {
     const value = e.target.value
     setQuery(value)
+    setOpen(true)
     if (value.trim().length < MIN_CHARS) reset()
   }
 
   function handleSubmit(e) {
     e.preventDefault() // Entrée force simplement la recherche tout de suite
+    setOpen(true)
     const text = query.trim()
     if (text.length >= MIN_CHARS) runSearch(text)
   }
@@ -122,13 +147,14 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
   const smallBtn = 'rounded-full px-3 py-1.5 text-xs transition disabled:opacity-50'
 
   return (
-    <section>
+    <section ref={rootRef}>
       <div className="flex gap-2">
         <form onSubmit={handleSubmit} className="relative min-w-0 flex-1">
           <SearchIcon className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-muted" />
           <input
             value={query}
             onChange={handleChange}
+            onFocus={() => setOpen(true)}
             enterKeyHint="search"
             autoComplete="off"
             disabled={offline}
@@ -138,7 +164,7 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
                 ? 'Recherche indisponible hors-ligne'
                 : 'Un artiste, un album… (ex. Josman, Discovery)'
             }
-            className="w-full rounded-2xl border border-line bg-surface py-4 pl-14 pr-14 text-base shadow-[0_10px_30px_-14px_rgba(27,36,32,0.35)] outline-none transition placeholder:text-muted/70 focus:border-accent focus:shadow-[0_14px_36px_-14px_rgba(29,74,58,0.5)] focus:ring-4 focus:ring-accent/10"
+            className="w-full rounded-2xl border border-line bg-surface py-4 pl-14 pr-14 text-base shadow-[0_10px_30px_-14px_rgba(27,36,32,0.35)] outline-none transition placeholder:text-muted/70 focus:border-accent focus:shadow-[0_14px_36px_-14px_color-mix(in_oklab,var(--color-accent)_50%,transparent)] focus:ring-4 focus:ring-accent/10"
           />
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
             {searching ? (
@@ -172,7 +198,7 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
         )}
       </div>
 
-      {searched && (
+      {showResults && (
         <div className="animate-pop mt-3 rounded-3xl border border-line bg-surface/90 p-4 backdrop-blur sm:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             {selectedArtist ? (

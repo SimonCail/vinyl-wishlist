@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Avatar } from './Avatar'
 import { RoomCover, CrownIcon, ROOM_COLORS, roomColor } from './Rooms'
 import { CloseIcon, CheckIcon, CopyIcon } from './Icons'
+import PhotoCropper from './PhotoCropper'
 
 const field =
   'w-full rounded-2xl border border-line bg-ink px-4 py-3 text-paper outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-4 focus:ring-accent/15 disabled:opacity-60'
@@ -12,6 +13,14 @@ const ghostBtn =
 
 const DISCOGS_IMAGE = /^https:\/\/i\.discogs\.com\//
 const norm = (t = '') => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+const CameraIcon = () => (
+  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9"
+    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" />
+    <circle cx="12" cy="12.5" r="3.4" />
+  </svg>
+)
 
 function Section({ title, children, aside }) {
   return (
@@ -27,13 +36,14 @@ function Section({ title, children, aside }) {
 
 // Fenêtre « Gérer le salon », réservée au responsable :
 // nom, couleur, pochette, code d'invitation, membres, suppression.
-// actions : { update, regenerateCode, removeMember, transfer, remove } (voir useRooms),
+// actions : { update, uploadCover, regenerateCode, removeMember, transfer, remove } (voir useRooms),
 // chacune renvoie { error? }. covers : pochettes des disques des membres du salon.
 export default function RoomSettings({ room, meId, covers = [], actions, onCopyInvite, onClose, onToast, offline }) {
   const [name, setName] = useState(room.name)
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(null) // ce qui est en cours d'enregistrement
   const [error, setError] = useState(null)
+  const [photoFile, setPhotoFile] = useState(null) // photo de la galerie en cours de recadrage
   const [confirm, setConfirm] = useState(null) // { kind: 'code' | 'remove' | 'transfer' | 'delete', member? }
   const [deleteWord, setDeleteWord] = useState('')
 
@@ -42,10 +52,14 @@ export default function RoomSettings({ room, meId, covers = [], actions, onCopyI
 
   // Fermeture avec Échap (sauf pendant un enregistrement)
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && !busy && onClose()
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || busy) return
+      if (photoFile) setPhotoFile(null) // Échap ferme d'abord le recadrage
+      else onClose()
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [busy, onClose])
+  }, [busy, onClose, photoFile])
 
   const coverChoices = useMemo(() => {
     const q = norm(filter.trim())
@@ -54,6 +68,20 @@ export default function RoomSettings({ room, meId, covers = [], actions, onCopyI
       .filter((c) => !q || norm(`${c.title} ${c.artist}`).includes(q))
       .slice(0, 60)
   }, [covers, filter])
+
+  const isPhoto = room.cover_url?.includes('/room-covers/')
+  function pickPhoto(e) {
+    const f = e.target.files?.[0]
+    e.target.value = '' // pour pouvoir rechoisir la même photo
+    if (!f) return
+    if (!f.type.startsWith('image/')) return setError('Choisis une image.')
+    if (f.size > 25 * 1024 * 1024) return setError('Photo trop lourde (25 Mo max).')
+    setError(null)
+    setPhotoFile(f)
+  }
+  async function sendPhoto(blob) {
+    if (await run('photo', () => actions.uploadCover(room.id, blob), 'Photo du salon mise à jour')) setPhotoFile(null)
+  }
 
   async function run(key, action, success) {
     setBusy(key)
@@ -111,7 +139,32 @@ export default function RoomSettings({ room, meId, covers = [], actions, onCopyI
             </button>
           </div>
           <div className="relative mt-6 flex items-end gap-5">
-            <RoomCover room={room} size={104} className="rounded-2xl ring-4 ring-ink shadow-xl shadow-black/30" />
+            {/* Clic sur la pochette (ou l'appareil photo) : choisir une photo, comme pour le profil */}
+            <label
+              title="Changer la photo du salon"
+              className={`group relative shrink-0 ${disabled ? 'pointer-events-none' : 'cursor-pointer'}`}
+            >
+              <input
+                type="file"
+                accept="image/*"
+                onChange={pickPhoto}
+                disabled={disabled}
+                aria-label="Changer la photo du salon"
+                className="sr-only"
+              />
+              <RoomCover
+                room={room}
+                size={104}
+                className="rounded-2xl ring-4 ring-ink shadow-xl shadow-black/30 transition group-hover:brightness-90"
+              />
+              <span className="keep-day absolute -bottom-2 -right-2 flex h-9 w-9 items-center justify-center rounded-full bg-ink text-paper shadow-lg ring-4 ring-accent transition group-hover:scale-110">
+                {busy === 'photo' ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-paper/30 border-t-paper" />
+                ) : (
+                  <CameraIcon />
+                )}
+              </span>
+            </label>
             <div className="min-w-0 pb-1">
               <h2 className="font-display break-words text-4xl font-black uppercase leading-[0.88] sm:text-5xl">{room.name}</h2>
               <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/75">
@@ -199,12 +252,15 @@ export default function RoomSettings({ room, meId, covers = [], actions, onCopyI
           >
             {covers.length === 0 ? (
               <p className="text-sm text-muted">
-                Ajoutez des disques au salon : leurs pochettes pourront servir d’image au salon.
+                Touche la pochette en haut pour mettre une photo, ou ajoutez des disques au salon :
+                leurs pochettes pourront aussi servir d’image.
               </p>
             ) : (
               <>
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-medium text-muted">Choisis parmi les disques du salon</p>
+                  <p className="text-xs font-medium text-muted">
+                    Choisis parmi les disques du salon, ou touche la pochette en haut pour une photo
+                  </p>
                   {covers.length > 12 && (
                     <input
                       value={filter}
@@ -413,6 +469,34 @@ export default function RoomSettings({ room, meId, covers = [], actions, onCopyI
           </div>
         </div>
       </div>
+
+      {/* Recadrage de la photo choisie, par-dessus la fenêtre */}
+      {photoFile && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={(e) => {
+            e.stopPropagation()
+            if (busy !== 'photo') setPhotoFile(null)
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Recadrer la photo du salon"
+            className="w-full max-w-md rounded-3xl bg-surface p-5 shadow-2xl shadow-black/60"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 font-display text-2xl font-black uppercase">Photo du salon</h3>
+            <PhotoCropper
+              file={photoFile}
+              busy={busy === 'photo'}
+              onConfirm={sendPhoto}
+              onCancel={() => setPhotoFile(null)}
+            />
+            {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

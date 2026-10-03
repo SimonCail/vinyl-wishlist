@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Avatar, AvatarStack } from './Avatar'
 import { CheckIcon, ChevronIcon, PlusIcon, CopyIcon, CloseIcon } from './Icons'
+import { FriendsIcon } from './Friends'
 
 // Couleurs proposées pour un salon (celles du site)
 export const ROOM_COLORS = ['#ec5b3e', '#e58a4e', '#f1c04e', '#b9cf5a', '#6fbf98', '#6aa6d6', '#f09aaa']
@@ -16,6 +17,7 @@ export function roomColor(room) {
 }
 
 // Pochette d'un salon : l'image choisie, sinon un carré à sa couleur avec l'initiale
+// size : en pixels, ou une taille CSS (« 100% ») avec la taille du texte dans className
 export function RoomCover({ room, size = 36, className = '' }) {
   const [failed, setFailed] = useState(null)
   const showImage = room.cover_url && failed !== room.cover_url
@@ -23,7 +25,7 @@ export function RoomCover({ room, size = 36, className = '' }) {
     <span
       aria-hidden="true"
       className={`keep-day relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-lg font-display font-black uppercase text-paper shadow-[0_4px_12px_-6px_rgba(0,0,0,0.5)] ${className}`}
-      style={{ width: size, height: size, fontSize: size * 0.46, backgroundColor: roomColor(room) }}
+      style={{ width: size, height: size, fontSize: typeof size === 'number' ? size * 0.46 : undefined, backgroundColor: roomColor(room) }}
     >
       {showImage ? (
         <img
@@ -78,7 +80,12 @@ function Row({ active, children, onClick }) {
 
 // Sélecteur « où je regarde » : ma liste perso ou un de mes salons,
 // + rejoindre / créer un salon. (Le compte, lui, est dans le bouton avatar.)
-export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onCreate, offline }) {
+// friends : mes amis (on peut afficher leurs disques), friendRequests : nombre de
+// demandes reçues, onFriends : ouvre la fenêtre « Amis »
+export function RoomPicker({
+  me, myCounts, rooms, current, onSelect, onJoin, onCreate, offline,
+  friends = [], friendRequests = 0, onFriends,
+}) {
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState('')
   const [newName, setNewName] = useState(null) // null = formulaire de création fermé
@@ -148,6 +155,7 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
   }
 
   const isRoom = current.kind === 'room'
+  const isFriend = current.kind === 'friend'
 
   return (
     <div ref={rootRef} className="relative flex items-center gap-2">
@@ -164,10 +172,22 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
       >
         {isRoom ? (
           <RoomCover room={current} size={30} className="rounded-full" />
+        ) : isFriend ? (
+          <Avatar member={current.friend} size={30} ring={false} />
         ) : (
           <MyDisc color={me.color} size={30} />
         )}
-        <span className="max-w-[6.5rem] truncate sm:max-w-[10rem]">{isRoom ? current.name : 'Ma liste'}</span>
+        <span className="max-w-[6.5rem] truncate sm:max-w-[10rem]">
+          {isRoom ? current.name : isFriend ? current.friend.name : 'Ma liste'}
+        </span>
+        {friendRequests > 0 && !open && (
+          <span
+            aria-label={`${friendRequests} demande${friendRequests > 1 ? 's' : ''} d’ami`}
+            className="keep-day -ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-coral px-1 font-mono text-[10px] font-bold text-white"
+          >
+            {friendRequests}
+          </span>
+        )}
         <ChevronIcon width={14} height={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -178,7 +198,7 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
           style={{ top: pos.top, right: pos.right, width: pos.width }}
           className="animate-pop absolute z-40 rounded-2xl border border-line bg-surface p-2 text-paper shadow-[0_24px_60px_-20px_rgba(27,36,32,0.6)]"
         >
-          <Row active={!isRoom} onClick={() => choose('me')}>
+          <Row active={!isRoom && !isFriend} onClick={() => choose('me')}>
             <MyDisc color={me.color} size={34} />
             <span className="min-w-0">
               <span className="block font-display text-base font-bold leading-tight">Ma liste</span>
@@ -213,7 +233,45 @@ export function RoomPicker({ me, myCounts, rooms, current, onSelect, onJoin, onC
                 </span>
               </Row>
             ))}
+
+            {friends.length > 0 && (
+              <p className="px-3 pb-1 pt-3 text-[11px] font-medium uppercase tracking-[0.15em] text-muted">
+                Mes amis
+              </p>
+            )}
+            {friends.map((f) => (
+              <Row key={f.id} active={isFriend && current.friend.id === f.id} onClick={() => choose(`friend:${f.id}`)}>
+                <Avatar member={f} size={38} ring={false} />
+                <span className="min-w-0">
+                  <span className="block truncate font-display text-base font-bold leading-tight">{f.name}</span>
+                  <span className="block font-mono text-[11px] text-muted">Voir ses disques</span>
+                </span>
+              </Row>
+            ))}
           </div>
+
+          {onFriends && (
+            <button
+              onClick={() => {
+                setOpen(false)
+                onFriends()
+              }}
+              className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition hover:bg-raised"
+            >
+              <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-raised text-paper">
+                <FriendsIcon />
+              </span>
+              <span className="min-w-0 flex-1">
+                {friends.length ? 'Gérer mes amis' : 'Ajouter des amis'}
+                <span className="block text-xs font-normal text-muted">Rechercher quelqu’un par son prénom</span>
+              </span>
+              {friendRequests > 0 && (
+                <span className="keep-day flex h-6 min-w-6 items-center justify-center rounded-full bg-coral px-1.5 font-mono text-[11px] font-bold text-white">
+                  {friendRequests}
+                </span>
+              )}
+            </button>
+          )}
 
           <div className="mt-2 border-t border-line px-1 pt-3">
             {newName === null ? (

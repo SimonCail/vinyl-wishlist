@@ -15,9 +15,6 @@
   0%, 100% { opacity: 0.45; }
   50% { opacity: 0.9; }
 }
-@keyframes marquee {
-  to { transform: translateX(-50%); }
-}
 @keyframes needle-drop {
   0%   { transform: rotate(-42deg); }
   75%  { transform: rotate(2deg); }
@@ -36,8 +33,10 @@
     /* paper = texte principal (presque noir, légèrement vert) */
     --color-paper: #1b2420;
     --color-muted: #5f685f;
-    --color-accent: #1d4a3a;
-    --color-accent-soft: #153a2d;
+    /* accent = couleur du site. Par défaut le vert ; remplacée par la
+       couleur du profil (voir src/lib/accent.js et la fin de ce fichier) */
+    --color-accent: var(--user-accent, #1d4a3a);
+    --color-accent-soft: var(--user-accent-bg-soft, #153a2d);
     --color-coral: #ec5b3e;
     --color-sun: #f1c04e;
 
@@ -47,11 +46,13 @@
   --animate-slow-spin: rotate-disc 8s linear infinite;
   --animate-disc: rotate-disc 28s linear infinite;
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
-  --animate-marquee: marquee 45s linear infinite;
 }
 
 html {
   color-scheme: light;
+  /* Rien ne dépasse sur les côtés (sinon, sur téléphone, toute la page
+     s'élargit et les onglets du bas sortent de l'écran) */
+  overflow-x: clip;
 }
 
 /* ------------------------------------------------------------------
@@ -68,12 +69,12 @@ html {
   --color-line: #2d3833;
   --color-paper: #f0eadd;
   --color-muted: #9aa398;
-  --color-accent: #86c9a6;
-  --color-accent-soft: #153a2d;
+  --color-accent: var(--user-accent-light, #86c9a6);
+  --color-accent-soft: var(--user-accent-bg-soft, #153a2d);
   --color-red-600: #ff8a73;
 }
 
-/* Les « îlots » colorés (en-tête vert, fenêtres vertes, ruban corail,
+/* Les « îlots » colorés (en-tête, fenêtres et boutons couleur du site,
    pastilles jaunes, boutons verts, étiquettes de prix avec .keep-day)
    gardent exactement leurs couleurs de jour : crème sur vert, vert foncé
    sur crème… Ils reprennent simplement la palette claire. */
@@ -85,13 +86,17 @@ html {
   --color-line: #e2dbc9;
   --color-paper: #1b2420;
   --color-muted: #5f685f;
-  --color-accent: #1d4a3a;
+  --color-accent: var(--user-accent-bg, #1d4a3a);
   --color-red-600: oklch(57.7% 0.245 27.325);
 }
 
 /* La nuit, une lueur verte très douce en haut de page */
 :root[data-theme='dark'] body {
-  background-image: radial-gradient(120% 60% at 50% 0%, rgba(29, 74, 58, 0.18), transparent 70%);
+  background-image: radial-gradient(
+    120% 60% at 50% 0%,
+    color-mix(in oklab, var(--user-accent-bg, #1d4a3a) 18%, transparent),
+    transparent 70%
+  );
   background-attachment: fixed;
 }
 
@@ -165,7 +170,19 @@ select:focus-visible {
       rgba(255, 255, 255, 0.08) 215deg,
       rgba(255, 255, 255, 0) 260deg
     ),
-    repeating-radial-gradient(circle closest-side at center, #0e0e0f 0 2px, #1a1a1c 2px 4px);
+    repeating-radial-gradient(
+      circle closest-side at center,
+      var(--groove-a, #0e0e0f) 0 2px,
+      var(--groove-b, #1a1a1c) 2px 4px
+    );
+}
+
+/* Platine de l'en-tête : pochette plus petite (taille d'une vraie
+   étiquette) pour que le bras se pose sur le sillon noir, pas sur la pochette */
+.hero-platter :has(> img) {
+  inset: 35%;
+  /* anneau noir : cache le bord de l'étiquette colorée autour de la pochette */
+  box-shadow: 0 0 0 0.4rem #0a0a0b;
 }
 
 /* Le disque d'une carte tourne seulement quand il est sorti (survol) */
@@ -226,4 +243,80 @@ select:focus-visible {
 }
 .scan-line {
   animation: scan-sweep 2.2s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------------
+   Couleur du site choisie dans le profil (voir src/lib/accent.js).
+   Chaque pastille donne une teinte foncée (comme le vert d'origine) sur
+   laquelle le texte crème reste lisible. Avec la pastille verte, rien
+   ne change.
+   ------------------------------------------------------------------ */
+.bg-accent,
+.hover\:bg-accent:hover {
+  background-color: var(--user-accent-bg, #1d4a3a);
+}
+.bg-accent-soft,
+.hover\:bg-accent-soft:hover {
+  background-color: var(--user-accent-bg-soft, #153a2d);
+}
+.bg-accent\/50 {
+  background-color: color-mix(in oklab, var(--user-accent-bg, #1d4a3a) 50%, transparent);
+}
+:root :is(.bg-accent, .bg-accent-soft, .bg-accent\/50, .hover\:bg-accent:hover, .hover\:bg-accent-soft:hover),
+:root[data-theme='dark'] :is(.bg-accent, .bg-accent-soft, .bg-accent\/50, .hover\:bg-accent:hover, .hover\:bg-accent-soft:hover) {
+  --color-ink: var(--user-on-accent, #f5f1e8);
+  --color-accent: var(--user-accent-bg, #1d4a3a);
+}
+
+/* ------------------------------------------------------------------
+   Navigation
+   ------------------------------------------------------------------ */
+/* Le petit vinyle du logo fait un tour à chaque changement de page */
+@keyframes spin-once {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.logo-spin {
+  animation: spin-once 0.9s cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+/* Arrivée d'une page */
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.page-in {
+  animation: page-in 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+/* Repère de l'onglet allumé (barre du bas) */
+.tab-marker {
+  transition: transform 0.35s cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+/* Sur téléphone, les notifications passent au-dessus des onglets du bas */
+@media (max-width: 767px) {
+  .toasts-above-tabs > div {
+    bottom: calc(5.25rem + env(safe-area-inset-bottom));
+  }
+}
+/* Un message qui arrive dans la conversation */
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.msg-in {
+  animation: msg-in 0.22s ease-out both;
+}
+/* Ligne qui défile sur le côté, sans barre de défilement visible */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Panneau qui monte du bas de l'écran */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+.sheet-up {
+  animation: sheet-up 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }

@@ -13,9 +13,19 @@ function roomMessage(error) {
   if (error.code === 'PGRST202' || error.code === '42883' || error.code === '42703' || /function .* does not exist|could not find the function/i.test(msg)) {
     return 'Lance d’abord le script 6-gestion-salons.sql dans Supabase.'
   }
+  // Photo du salon (stockage Supabase)
+  if (/bucket not found/i.test(msg) || /rooms_cover_source|rooms_cover_discogs/.test(msg)) {
+    return 'Lance d’abord le script 8-photo-salon.sql dans Supabase.'
+  }
+  if (/tenant/i.test(msg)) return 'Le stockage de photos de Supabase ne répond pas pour l’instant (même souci que pour la photo de profil).'
+  if (/exceeded the maximum allowed size|payload too large/i.test(msg)) return 'Photo trop lourde, essaie une autre image.'
+  if (/row-level security|unauthorized|403/i.test(msg)) return 'Seul le responsable du salon peut changer sa photo.'
   if (!navigator.onLine) return 'Pas de connexion internet.'
   return msg || 'Ça n’a pas marché, réessaie.'
 }
+
+// Dossier de stockage des photos de salon (script 8)
+const COVER_BUCKET = 'room-covers'
 
 // Colonnes à lire, de la plus complète à la plus courte : tant qu'un script SQL
 // (4, 6…) n'est pas lancé, on se rabat sur ce qui existe déjà.
@@ -99,12 +109,41 @@ export function useRooms(userId) {
   // --- Réservé au responsable ---
   // patch : { name, color, cover_url } (une partie suffit)
   async function update(roomId, patch) {
+    const old = rooms.find((r) => r.id === roomId)?.cover_url
     const { data, error } = await supabase.from('rooms').update(patch).eq('id', roomId).select('id')
     if (error) return { error: roomMessage(error) }
     // Aucune ligne modifiée : la base a refusé (pas responsable)
     if (!data?.length) return { error: roomMessage({ message: 'not_room_owner' }) }
+    // On passe d'une photo perso à une pochette (ou plus rien) : on efface la photo
+    if ('cover_url' in patch && patch.cover_url !== old && !patch.cover_url?.includes(`/${COVER_BUCKET}/`)) {
+      removeStoredCover(old)
+    }
     await load()
     return {}
+  }
+
+  // Photo de la galerie : blob = image déjà recadrée (JPEG carré)
+  async function uploadCover(roomId, blob) {
+    const old = rooms.find((r) => r.id === roomId)?.cover_url
+    const path = `${roomId}/photo-${Date.now()}.jpg`
+    const bucket = supabase.storage.from(COVER_BUCKET)
+    const { error: upErr } = await bucket.upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' })
+    if (upErr) return { error: roomMessage(upErr) }
+    const { data } = bucket.getPublicUrl(path)
+    const res = await update(roomId, { cover_url: data.publicUrl })
+    if (res.error) {
+      bucket.remove([path]) // pas enregistrée : on ne laisse pas traîner le fichier
+      return res
+    }
+    removeStoredCover(old)
+    return {}
+  }
+
+  // Supprime l'ancienne photo du stockage (pas les pochettes Discogs)
+  function removeStoredCover(url) {
+    const i = url?.indexOf(`/${COVER_BUCKET}/`) ?? -1
+    if (i < 0) return
+    supabase.storage.from(COVER_BUCKET).remove([decodeURIComponent(url.slice(i + COVER_BUCKET.length + 2))])
   }
 
   async function removeMember(roomId, memberId) {
@@ -138,7 +177,7 @@ export function useRooms(userId) {
   return {
     rooms, loaded, reload: load,
     create, join, leave,
-    update, removeMember, regenerateCode, transfer, remove,
+    update, uploadCover, removeMember, regenerateCode, transfer, remove,
   }
 }
 

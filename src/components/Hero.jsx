@@ -1,4 +1,4 @@
-import { AvatarStack } from './Avatar'
+import { Avatar, AvatarStack } from './Avatar'
 import SpinningDisc from './SpinningDisc'
 import { RoomCover, roomColor } from './Rooms'
 
@@ -22,6 +22,7 @@ function NowSpinning({ disc }) {
 export default function Hero({ count, context, topRight, compact = false, disc = null }) {
   const isRoom = context?.kind === 'room'
   const isMe = context?.kind === 'me'
+  const isFriend = context?.kind === 'friend'
 
   return (
     <header className="relative overflow-hidden bg-accent text-ink">
@@ -31,8 +32,8 @@ export default function Hero({ count, context, topRight, compact = false, disc =
       >
         <SpinningDisc
           cover={disc?.cover_url}
-          color={isRoom ? roomColor(context) : '#ec5b3e'}
-          className="h-full w-full"
+          color={isRoom ? roomColor(context) : context?.kind === 'friend' ? context.friend.color || '#ec5b3e' : '#ec5b3e'}
+          className="hero-platter h-full w-full"
         />
         <svg viewBox="0 0 100 100" fill="none" className="absolute inset-0 h-full w-full overflow-visible">
           <g className="needle">
@@ -45,14 +46,15 @@ export default function Hero({ count, context, topRight, compact = false, disc =
       </div>
 
       <div className="relative mx-auto max-w-[88rem] sm:px-8 lg:px-14 px-5">
-        <div className="flex items-center justify-between gap-3 py-4">
-          <span className="hidden whitespace-nowrap font-mono text-xs text-ink/70 sm:inline">
-            vinyl-wishlist{count != null && ` · ${String(count).padStart(3, '0')}`}
-          </span>
-          <div className="ml-auto">{topRight}</div>
-        </div>
+        {topRight ? (
+          <div className="flex items-center justify-between gap-3 py-4">
+            <div className="ml-auto">{topRight}</div>
+          </div>
+        ) : (
+          <div className="h-2" />
+        )}
 
-        <div className={compact ? 'pb-20 pt-10 sm:pb-24 sm:pt-16' : 'pb-24 pt-14 sm:pb-32 sm:pt-24'}>
+        <div className={compact ? 'pb-20 pt-10 sm:pb-24 sm:pt-16' : 'pb-16 pt-8 sm:pb-28 sm:pt-16'}>
           {isRoom ? (
             <>
               <p className="animate-fade-up mb-4 flex items-center gap-3 font-mono text-xs uppercase tracking-[0.15em] text-ink/70">
@@ -68,6 +70,22 @@ export default function Hero({ count, context, topRight, compact = false, disc =
               <p className="animate-fade-up mt-6 max-w-sm text-ink/80 lg:max-w-md lg:text-lg" style={{ animationDelay: '120ms' }}>
                 Vos souhaits et vos collections, réunis. Chacun garde sa liste
                 perso, ici on voit tout ensemble.
+              </p>
+              <NowSpinning disc={disc} />
+            </>
+          ) : isFriend ? (
+            <>
+              <p className="animate-fade-up mb-4 flex items-center gap-3 font-mono text-xs uppercase tracking-[0.15em] text-ink/70">
+                <Avatar member={context.friend} size={30} className="ring-2 ring-ink/40" />
+                <span className="min-w-0 truncate">Chez un·e ami·e</span>
+              </p>
+              <h1 className="font-display animate-fade-up break-words text-[clamp(3.5rem,14vw,9.5rem)] xl:text-[clamp(9.5rem,10vw,12.5rem)] font-black uppercase leading-[0.84]">
+                Chez
+                <br />
+                {context.friend.name}.
+              </h1>
+              <p className="animate-fade-up mt-6 max-w-sm text-ink/80 lg:max-w-md lg:text-lg" style={{ animationDelay: '120ms' }}>
+                Ses souhaits et sa collection. Une idée de cadeau, ou un disque à ajouter à ta propre liste.
               </p>
               <NowSpinning disc={disc} />
             </>
