@@ -13,10 +13,12 @@ import { getDetails, itemKey } from './lib/discogs'
 import { readCache, writeCache } from './lib/cache'
 import { copyToClipboard } from './lib/share'
 import { applyAccent, restoreAccent } from './lib/accent'
+import { playAlbum, autoStart, stop as stopPlayer, stopIfPlaying, unlock as unlockPlayer } from './lib/player'
 import Hero from './components/Hero'
 import { ThemeToggle } from './components/ThemePicker'
 import ShelfTabs from './components/ShelfTabs'
 import Pagination, { usePageSize } from './components/Pagination'
+import Suggestions from './components/Suggestions'
 import ListSummary from './components/ListSummary'
 import ListToolbar from './components/ListToolbar'
 import SearchPanel from './components/SearchPanel'
@@ -326,6 +328,17 @@ export default function App() {
       .map((vinyl) => ({ vinyl, friend: byId.get(vinyl.owner_id) }))
   }, [items, friendsApi.friends])
 
+  // Poser un disque sur la platine (profil) : on lance ses extraits si le son est activé
+  function setTurntable(value) {
+    unlockPlayer()
+    auth.updateProfile({ turntable: value })
+    if (value?.mode === 'disc' && value.title && value.artist) {
+      playAlbum({ key: value.key, title: value.title, artist: value.artist, cover_url: value.cover_url })
+    } else if (!value) {
+      stopPlayer()
+    }
+  }
+
   // Inviter quelqu'un : partage du lien de l'app (ou copie)
   async function inviteFriend() {
     const url = window.location.origin
@@ -348,6 +361,15 @@ export default function App() {
     ;[...friendsApi.outgoing, ...friendsApi.incoming, ...friendsApi.friends].forEach((p) => map.set(p.id, p))
     return map
   }, [rooms, friendsApi.friends, friendsApi.incoming, friendsApi.outgoing])
+  // Suggestions : les disques de mes proches (amis et membres de mes salons)
+  const othersForSuggestions = useMemo(
+    () =>
+      items
+        .filter((v) => v.owner_id !== userId && people.has(v.owner_id))
+        .map((vinyl) => ({ vinyl, person: people.get(vinyl.owner_id) })),
+    [items, userId, people]
+  )
+
   const myByKey = useMemo(() => new Map(myItems.map((v) => [itemKey(v), v])), [myItems])
   const statusOf = (item) => myByKey.get(itemKey(item))?.status ?? null
 
@@ -768,6 +790,25 @@ export default function App() {
     }
     return null
   }, [turntable, myDiscs, spinSeed, loading])
+
+  // À l'ouverture : le disque de la platine se lance tout seul (si le son est
+  // activé dans le profil). Une seule fois par ouverture de l'app.
+  const autoStarted = useRef(false)
+  useEffect(() => {
+    if (autoStarted.current || loading || !platine?.title || !platine?.artist) return
+    autoStarted.current = true
+    autoStart({ key: platine.key, title: platine.title, artist: platine.artist, cover_url: platine.cover_url })
+  }, [platine, loading])
+
+  // Le disque quitte la platine (retiré de la collection, passé en souhait…) :
+  // sa musique s'arrête aussi. Les extraits lancés ailleurs (suggestions) continuent.
+  const platineKey = platine?.key ?? null
+  const prevPlatineKey = useRef(platineKey)
+  useEffect(() => {
+    const prev = prevPlatineKey.current
+    prevPlatineKey.current = platineKey
+    if (prev && prev !== platineKey) stopIfPlaying(prev)
+  }, [platineKey])
   // Artistes proposés comme avatar : ceux de mes listes et de mes salons, les plus présents d'abord
   const pickerArtists = useMemo(() => {
     const counts = new Map()
@@ -1205,6 +1246,17 @@ export default function App() {
             </>
           )}
         </section>
+
+        {/* Suggestions, sous ma liste */}
+        {route.name === 'home' && !loading && (
+          <Suggestions
+            myItems={myItems}
+            others={othersForSuggestions}
+            statusOf={statusOf}
+            onAdd={addItem}
+            online={online}
+          />
+        )}
         </>
         )}
       </main>
@@ -1273,7 +1325,7 @@ export default function App() {
           onSetArtist={setArtist}
           myArtists={pickerArtists}
           myDiscs={myDiscs.filter((d) => d.status === 'owned')}
-          onSetTurntable={(value) => auth.updateProfile({ turntable: value })}
+          onSetTurntable={setTurntable}
           onRemovePhoto={removePhoto}
           onChangeEmail={auth.changeEmail}
           onChangePassword={auth.changePassword}

@@ -365,7 +365,7 @@ export default function FriendsPanel({
       {activity.length > 0 && (
         <section>
           <h2 className="mb-4 font-display text-2xl font-black uppercase">Du nouveau chez tes amis</h2>
-          <ul className="no-scrollbar -mx-5 flex snap-x gap-4 overflow-x-auto px-5 pb-2 sm:mx-0 sm:px-0">
+          <ul className="no-scrollbar -mx-5 flex snap-x scroll-px-5 gap-4 overflow-x-auto px-5 pb-2 sm:mx-0 sm:scroll-px-0 sm:px-0">
             {activity.map(({ vinyl, friend }) => (
               <li key={vinyl.id} className="w-40 shrink-0 snap-start sm:w-44">
                 <button onClick={() => onOpenFriend(friend.id)} className="group block w-full text-left">

@@ -1,4 +1,5 @@
 import { useTheme } from '../hooks/useTheme'
+import { usePlayer, setSoundEnabled } from '../lib/player'
 
 export const SunIcon = (p) => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8"
@@ -87,6 +88,35 @@ export function ThemeSettings() {
           ? `Suit le réglage de ton appareil (en ce moment : ${theme === 'dark' ? 'nuit' : 'jour'}).`
           : 'Réglage gardé sur cet appareil.'}
       </p>
+      <SoundSetting />
+    </div>
+  )
+}
+
+// Son de la platine : écouter les extraits du disque posé sur la platine
+export function SoundSetting() {
+  const { enabled } = usePlayer()
+  return (
+    <div className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-line p-4">
+      <div className="min-w-0">
+        <p className="font-medium">Son de la platine</p>
+        <p className="mt-0.5 text-sm text-muted">
+          {enabled
+            ? 'Le disque de ta platine se lance à l’ouverture de l’app, et quand tu en poses un nouveau.'
+            : 'Coupé : la platine tourne en silence.'}
+        </p>
+      </div>
+      <button
+        role="switch"
+        aria-checked={enabled}
+        aria-label="Son de la platine"
+        onClick={() => setSoundEnabled(!enabled)}
+        className={`relative h-7 w-12 shrink-0 rounded-full transition ${enabled ? 'bg-accent' : 'bg-raised ring-1 ring-line'}`}
+      >
+        <span
+          className={`absolute top-1 h-5 w-5 rounded-full shadow transition-all ${enabled ? 'left-6 bg-ink' : 'left-1 bg-muted'}`}
+        />
+      </button>
     </div>
   )
 }

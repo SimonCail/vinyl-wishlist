@@ -320,3 +320,21 @@ select:focus-visible {
 .sheet-up {
   animation: sheet-up 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+/* Platine : 33 tours/minute (un tour toutes les 1,8 s) pendant l'écoute */
+.hero-platter.is-playing {
+  animation-duration: 1.8s;
+}
+/* Barres d'égaliseur pendant la lecture */
+.eq > span {
+  display: block;
+  width: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  animation: eq 0.9s ease-in-out infinite;
+}
+.eq > span:nth-child(2) { animation-delay: -0.3s; }
+.eq > span:nth-child(3) { animation-delay: -0.6s; }
+@keyframes eq {
+  0%, 100% { height: 30%; }
+  50% { height: 100%; }
+}

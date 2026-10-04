@@ -1,18 +1,73 @@
 import { Avatar, AvatarStack } from './Avatar'
 import SpinningDisc from './SpinningDisc'
 import { RoomCover, roomColor } from './Rooms'
+import { usePlayer, toggle } from '../lib/player'
 
-// Petite mention du disque posé sur la platine
+const PlayIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
+)
+const PauseIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" /></svg>
+)
+// Petites barres qui dansent pendant la lecture
+const Bars = () => (
+  <span aria-hidden="true" className="eq flex h-3 items-end gap-[2px]">
+    <span /><span /><span />
+  </span>
+)
+
+// Le disque posé sur la platine, avec lecture des extraits (si le son est activé)
 function NowSpinning({ disc }) {
+  const player = usePlayer()
   if (!disc?.title) return null
+  const album = { key: disc.key ?? `${disc.artist}|${disc.title}`, title: disc.title, artist: disc.artist, cover_url: disc.cover_url }
+  const current = player.album?.key === album.key
+  const playing = current && (player.status === 'playing' || player.status === 'loading')
+  const track = current ? player.tracks[player.index] : null
+
   return (
-    <p className="animate-fade-up mt-5 flex max-w-sm items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70" style={{ animationDelay: '220ms' }}>
-      <span aria-hidden="true" className="inline-block h-1.5 w-1.5 animate-shimmer rounded-full bg-coral" />
-      <span className="min-w-0 truncate">
-        Sur la platine · {disc.title}
-        {disc.artist && ` — ${disc.artist}`}
-      </span>
-    </p>
+    <div className="animate-fade-up mt-5 flex max-w-md items-center gap-3" style={{ animationDelay: '220ms' }}>
+      {player.enabled && disc.artist && (
+        <button
+          onClick={() => toggle(album)}
+          data-player-control
+          aria-label={playing ? 'Mettre en pause' : `Écouter ${disc.title}`}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink text-accent shadow-lg transition hover:scale-105"
+        >
+          {current && player.status === 'loading' ? (
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
+          ) : playing ? (
+            <PauseIcon />
+          ) : (
+            <PlayIcon />
+          )}
+        </button>
+      )}
+      <p className="min-w-0 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70">
+        <span className="flex items-center gap-2">
+          {playing && player.status === 'playing' ? (
+            <Bars />
+          ) : (
+            <span aria-hidden="true" className="inline-block h-1.5 w-1.5 animate-shimmer rounded-full bg-coral" />
+          )}
+          <span className="truncate">
+            Sur la platine · {disc.title}
+            {disc.artist && ` — ${disc.artist}`}
+          </span>
+        </span>
+        {current && track && (
+          <span className="mt-1 block truncate normal-case tracking-normal text-ink/85">
+            {track.title} <span className="text-ink/55">· extrait {player.index + 1}/{player.tracks.length}</span>
+          </span>
+        )}
+        {current && player.status === 'waiting' && (
+          <span className="mt-1 block normal-case tracking-normal text-ink/60">Touche l’écran pour lancer la musique.</span>
+        )}
+        {current && player.status === 'unavailable' && (
+          <span className="mt-1 block normal-case tracking-normal text-ink/60">Pas d’extrait trouvé pour cet album.</span>
+        )}
+      </p>
+    </div>
   )
 }
 
@@ -23,6 +78,10 @@ export default function Hero({ count, context, topRight, compact = false, disc =
   const isRoom = context?.kind === 'room'
   const isMe = context?.kind === 'me'
   const isFriend = context?.kind === 'friend'
+  const player = usePlayer()
+  const discKey = disc ? disc.key ?? `${disc.artist}|${disc.title}` : null
+  // 33 tours/minute pendant l'écoute, sinon rotation lente de décor
+  const spinning = discKey && player.album?.key === discKey && player.status === 'playing'
 
   return (
     <header className="relative overflow-hidden bg-accent text-ink">
@@ -33,7 +92,7 @@ export default function Hero({ count, context, topRight, compact = false, disc =
         <SpinningDisc
           cover={disc?.cover_url}
           color={isRoom ? roomColor(context) : context?.kind === 'friend' ? context.friend.color || '#ec5b3e' : '#ec5b3e'}
-          className="hero-platter h-full w-full"
+          className={`hero-platter h-full w-full ${spinning ? 'is-playing' : ''}`}
         />
         <svg viewBox="0 0 100 100" fill="none" className="absolute inset-0 h-full w-full overflow-visible">
           <g className="needle">
