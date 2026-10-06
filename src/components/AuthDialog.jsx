@@ -1,58 +1,144 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AvatarStack } from './Avatar'
 import { CloseIcon } from './Icons'
+import { pseudoError, emailError, emailSuggestion, passwordError, PASSWORD_RULES, PSEUDO_MAX, PASSWORD_MAX } from '../lib/validation'
 
-const field =
-  'mt-1.5 w-full rounded-2xl border border-line bg-ink px-4 py-3 text-paper outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-4 focus:ring-accent/15'
+// Texte en 16 px : tous les champs ont la même hauteur, et l'iPhone ne zoome pas en touchant un champ
+const fieldBase =
+  'w-full rounded-2xl border border-line bg-ink px-4 py-2.5 text-base font-normal text-paper outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-4 focus:ring-accent/15'
+const field = `mt-1.5 ${fieldBase}`
+const fieldError = 'border-red-500 focus:border-red-500 focus:ring-red-500/15'
 
 const TITLES = {
   login: ['Re-bonjour.', 'Connecte-toi pour retrouver tes disques et tes salons.'],
   signup: ['Ton bac à toi.', 'Tes souhaits et ta collection te suivent dans tous les salons que tu rejoins.'],
   forgot: ['Mot de passe oublié.', 'Indique ton email : tu recevras un lien pour en choisir un nouveau.'],
-  recovery: ['Nouveau mot de passe.', 'Choisis ton nouveau mot de passe (6 caractères minimum).'],
+  recovery: ['Nouveau mot de passe.', 'Choisis ton nouveau mot de passe.'],
 }
+
+const EyeIcon = ({ off }) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+    <circle cx="12" cy="12" r="3" />
+    {off && <path d="M4 4l16 16" />}
+  </svg>
+)
+
+const Err = ({ id, children }) =>
+  children ? (
+    <span id={id} role="alert" className="mt-1.5 block text-xs font-normal text-red-500">
+      {children}
+    </span>
+  ) : null
 
 // Connexion, création de compte, mot de passe oublié / nouveau mot de passe.
 // invite : { name, members } quand on arrive par le lien d'un salon
+// onCheckPseudo(pseudo) → 'free' | 'taken' | 'unknown' : vérifie en direct que le pseudo est libre
 export default function AuthDialog({
-  initialMode = 'login', invite, onSignIn, onSignUp, onReset, onUpdatePassword, onClose,
+  initialMode = 'login', invite, onSignIn, onSignUp, onReset, onUpdatePassword, onClose, onCheckPseudo,
 }) {
   const [mode, setMode] = useState(initialMode)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [pwFocus, setPwFocus] = useState(false)
+  const [touched, setTouched] = useState({}) // champs quittés au moins une fois
+  const [submitted, setSubmitted] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
+  const refs = { name: useRef(null), email: useRef(null), password: useRef(null), confirm: useRef(null) }
+
+  const creating = mode === 'signup' || mode === 'recovery' // un nouveau mot de passe est choisi
+  const touch = (k) => () => setTouched((t) => ({ ...t, [k]: true }))
+  const shown = (k) => submitted || touched[k]
+
+  // Pseudo déjà pris ? On vérifie pendant qu'on tape (seulement s'il respecte les règles)
+  const [taken, setTaken] = useState(false)
+  const latest = useRef('')
+  useEffect(() => {
+    const pseudo = name.trim()
+    latest.current = pseudo
+    setTaken(false)
+    if (mode !== 'signup' || !onCheckPseudo || pseudoError(pseudo)) return
+    const timer = setTimeout(async () => {
+      const res = await onCheckPseudo(pseudo).catch(() => 'unknown')
+      if (latest.current === pseudo) setTaken(res === 'taken')
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [name, mode, onCheckPseudo])
+
+  // Erreurs de chaque champ
+  const ruleError = mode === 'signup' ? pseudoError(name) : null
+  const errors = {
+    name: mode !== 'signup' ? null : ruleError || (taken ? 'Ce pseudo est déjà pris, choisis-en un autre.' : null),
+    email: mode === 'recovery' ? null : emailError(email),
+    password:
+      mode === 'forgot' ? null : creating ? passwordError(password) : password ? null : 'Indique ton mot de passe.',
+    confirm: !creating ? null : !confirm ? 'Confirme ton mot de passe.' : confirm !== password ? 'Les deux mots de passe ne sont pas identiques.' : null,
+  }
+  // Ce qu'on affiche : après avoir quitté le champ (ou validé) ; « déjà pris » et
+  // les caractères interdits tout de suite
+  const visible = {
+    name:
+      errors.name &&
+      (shown('name') || taken || (name.trim() && ruleError && !/Au moins|Choisis/.test(ruleError)))
+        ? errors.name
+        : null,
+    email: shown('email') ? errors.email : null,
+    // Nouveau mot de passe : la liste des règles suffit (sauf espaces / trop long)
+    password: !errors.password
+      ? null
+      : creating
+        ? shown('password') && !pwFocus && !/règles|Choisis/.test(errors.password) ? errors.password : null
+        : submitted ? errors.password : null,
+    confirm: errors.confirm && (shown('confirm') || (confirm && !password.startsWith(confirm))) ? errors.confirm : null,
+  }
+  const suggestion = mode !== 'recovery' && touched.email ? emailSuggestion(email) : null
 
   function switchTo(m) {
     setMode(m)
     setError(null)
     setInfo(null)
+    setSubmitted(false)
+    setTouched({})
+    setConfirm('')
   }
 
   async function submit(e) {
     e.preventDefault()
+    setSubmitted(true)
+    // Le premier champ à corriger reçoit le curseur
+    const first = ['name', 'email', 'password', 'confirm'].find((k) => errors[k])
+    if (first) {
+      refs[first].current?.focus()
+      return
+    }
     setBusy(true)
     setError(null)
     setInfo(null)
+    const mail = email.trim().toLowerCase()
     let err = null
     if (mode === 'login') {
-      err = await onSignIn(email.trim(), password)
+      err = await onSignIn(mail, password)
     } else if (mode === 'signup') {
-      const res = await onSignUp({ name: name.trim(), email: email.trim(), password })
+      const res = await onSignUp({ name: name.trim(), email: mail, password })
       err = res.error
       if (!err && res.needsConfirmation) {
-        setInfo(`Presque fini ! Clique sur le lien envoyé à ${email.trim()} pour activer ton compte${invite ? ' et rejoindre le salon' : ''}.`)
+        setInfo(`Presque fini ! Clique sur le lien envoyé à ${mail} pour activer ton compte${invite ? ' et rejoindre le salon' : ''}.`)
       }
     } else if (mode === 'forgot') {
-      err = await onReset(email.trim())
-      if (!err) setInfo(`Si un compte existe pour ${email.trim()}, un lien vient de lui être envoyé.`)
+      err = await onReset(mail)
+      if (!err) setInfo(`Si un compte existe pour ${mail}, un lien vient de lui être envoyé.`)
     } else if (mode === 'recovery') {
       err = await onUpdatePassword(password)
     }
     setBusy(false)
-    if (err) setError(err)
+    if (err && /pseudo/i.test(err) && /pris/i.test(err)) setTaken(true)
+    else if (err) setError(err)
   }
 
   const [title, subtitle] = TITLES[mode]
@@ -63,11 +149,21 @@ export default function AuthDialog({
     forgot: 'Envoyer le lien',
     recovery: 'Enregistrer',
   }[mode]
-  const canSubmit =
-    !busy &&
-    (mode === 'recovery'
-      ? password.length >= 6
-      : email.trim() && (mode === 'forgot' || password) && (mode !== 'signup' || name.trim()))
+  const passed = PASSWORD_RULES.filter((r) => r.test(password)).length
+
+  // L'œil d'un champ mot de passe (chaque champ a le sien)
+  const eye = (shown, toggle) => (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()} // garde le curseur dans le champ (rien ne bouge sous le doigt)
+      onClick={toggle}
+      aria-label={shown ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+      aria-pressed={shown}
+      className="absolute inset-y-0 right-2 my-auto flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-raised hover:text-paper"
+    >
+      <EyeIcon off={shown} />
+    </button>
+  )
 
   return (
     <div
@@ -130,52 +226,159 @@ export default function AuthDialog({
           {info ? (
             <p className="mt-5 rounded-2xl bg-accent/10 p-4 text-sm leading-relaxed text-accent">{info}</p>
           ) : (
-            <form className="mt-5 space-y-3" onSubmit={submit}>
+            <form className="mt-5 space-y-3" onSubmit={submit} noValidate>
               {mode === 'signup' && (
+                <div>
                 <label className="block text-xs font-medium text-muted">
-                  Prénom
+                  Pseudo
                   <input
-                    className={field}
+                    ref={refs.name}
+                    className={`${field} ${visible.name ? fieldError : ''}`}
                     value={name}
-                    maxLength={30}
-                    autoComplete="given-name"
+                    maxLength={PSEUDO_MAX}
+                    autoComplete="username"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    aria-invalid={!!visible.name}
+                    aria-describedby={visible.name ? 'err-name' : undefined}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Comme tes proches t'appellent"
+                    onBlur={touch('name')}
+                    placeholder="3 à 20 caractères, sans espace"
                   />
                 </label>
+                <Err id="err-name">{visible.name}</Err>
+                </div>
               )}
+
               {mode !== 'recovery' && (
+                <div>
                 <label className="block text-xs font-medium text-muted">
                   Email
                   <input
+                    ref={refs.email}
                     type="email"
-                    className={field}
+                    inputMode="email"
+                    className={`${field} ${visible.email ? fieldError : ''}`}
                     value={email}
+                    maxLength={254}
                     autoComplete="email"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    aria-invalid={!!visible.email}
+                    aria-describedby={visible.email ? 'err-email' : undefined}
                     onChange={(e) => setEmail(e.target.value)}
+                    onBlur={touch('email')}
                     placeholder="toi@exemple.fr"
                   />
                 </label>
-              )}
-              {mode !== 'forgot' && (
-                <label className="block text-xs font-medium text-muted">
-                  {mode === 'recovery' ? 'Nouveau mot de passe' : 'Mot de passe'}
-                  <input
-                    type="password"
-                    className={field}
-                    value={password}
-                    minLength={mode === 'login' ? undefined : 6}
-                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={mode === 'login' ? '' : '6 caractères minimum'}
-                  />
-                </label>
+                  <Err id="err-email">{visible.email}</Err>
+                  {!visible.email && suggestion && (
+                    <span className="mt-1.5 block text-xs font-normal text-muted">
+                      Tu voulais dire{' '}
+                      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setEmail(suggestion)} className="font-bold text-paper underline underline-offset-2">
+                        {suggestion}
+                      </button>{' '}
+                      ?
+                    </span>
+                  )}
+                </div>
               )}
 
-              {error && <p className="text-sm text-red-500">{error}</p>}
+              {mode !== 'forgot' && (
+                <div>
+                  <label htmlFor="auth-password" className="block text-xs font-medium text-muted">
+                    {mode === 'recovery' ? 'Nouveau mot de passe' : 'Mot de passe'}
+                  </label>
+                  {/* L'œil est centré sur le champ */}
+                  <div className="relative mt-1.5">
+                      <input
+                        ref={refs.password}
+                        type={showPassword ? 'text' : 'password'}
+                        id="auth-password"
+                        className={`${fieldBase} pr-12 ${visible.password ? fieldError : ''}`}
+                        value={password}
+                        maxLength={PASSWORD_MAX}
+                        autoComplete={creating ? 'new-password' : 'current-password'}
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        aria-invalid={!!visible.password}
+                        aria-describedby={creating ? 'pw-rules' : visible.password ? 'err-password' : undefined}
+                        onChange={(e) => setPassword(e.target.value)}
+                        onFocus={() => setPwFocus(true)}
+                        onBlur={() => {
+                          setPwFocus(false)
+                          touch('password')()
+                        }}
+                      />
+                    {eye(showPassword, () => setShowPassword((v) => !v))}
+                  </div>
+                  <Err id="err-password">{visible.password}</Err>
+
+                  {/* Les règles se cochent au fur et à mesure */}
+                  {creating && (pwFocus || password || submitted) && (
+                    <div id="pw-rules" className="mt-2.5">
+                      <div className="flex gap-1" aria-hidden="true">
+                        {PASSWORD_RULES.map((r, i) => (
+                          <span
+                            key={r.id}
+                            className={`h-1 flex-1 rounded-full transition-colors ${
+                              i < passed ? (passed === PASSWORD_RULES.length ? 'bg-accent' : passed >= 3 ? 'bg-sun' : 'bg-red-500') : 'bg-raised'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                        {PASSWORD_RULES.map((r) => {
+                          const okRule = r.test(password)
+                          return (
+                            <li key={r.id} className={`flex items-center gap-1.5 ${okRule ? 'text-accent' : submitted ? 'text-red-500' : 'text-muted'}`}>
+                              <span aria-hidden="true" className="w-3 text-center">{okRule ? '✓' : '•'}</span>
+                              {r.label}
+                              <span className="sr-only">{okRule ? ' : respecté' : ' : manquant'}</span>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {creating && (
+                <div>
+                <label htmlFor="auth-confirm" className="block text-xs font-medium text-muted">
+                  Confirme le mot de passe
+                </label>
+                <div className="relative mt-1.5">
+                  <input
+                    ref={refs.confirm}
+                    id="auth-confirm"
+                    type={showConfirm ? 'text' : 'password'}
+                    className={`${fieldBase} pr-12 ${visible.confirm ? fieldError : ''}`}
+                    value={confirm}
+                    maxLength={PASSWORD_MAX}
+                    autoComplete="new-password"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    aria-invalid={!!visible.confirm}
+                    aria-describedby={visible.confirm ? 'err-confirm' : undefined}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    onBlur={touch('confirm')}
+                  />
+                  {eye(showConfirm, () => setShowConfirm((v) => !v))}
+                </div>
+                <Err id="err-confirm">{visible.confirm}</Err>
+                </div>
+              )}
+
+              {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
 
               <button
-                disabled={!canSubmit}
+                disabled={busy}
                 className="mt-2 w-full rounded-full bg-accent py-3 font-bold text-ink transition hover:bg-accent-soft disabled:opacity-50"
               >
                 {busy ? '…' : submitLabel}

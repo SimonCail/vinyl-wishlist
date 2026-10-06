@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Cover from './Cover'
 import { CloseIcon, CheckIcon, PlusIcon } from './Icons'
-import { startScanner, cameraAvailable, cameraMessage, isValidBarcode, cleanBarcode } from '../lib/barcode'
+import { openCamera, waitFrames, startDecoding, decodeImageFile, cameraAvailable, cameraMessage, isValidBarcode, cleanBarcode } from '../lib/barcode'
 import { searchByBarcode, itemKey } from '../lib/discogs'
 
 const RESUME_MS = 1100 // pause après un ajout, avant de scanner le suivant
+
+const CameraIcon = (p) => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...p}>
+    <path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+    <circle cx="12" cy="13" r="3.5" />
+  </svg>
+)
 
 function Corner({ className }) {
   return <span aria-hidden="true" className={`absolute h-7 w-7 border-sun ${className}`} />
@@ -16,12 +23,15 @@ function Corner({ className }) {
 // renvoient le disque enregistré (ou null en cas d'échec).
 export default function BarcodeScanner({ statusOf, onAdd, onGotIt, onClose, offline }) {
   const videoRef = useRef(null)
-  const scannerRef = useRef(null)
+  const cameraRef = useRef(null) // { stop } : caméra ouverte
+  const decodingRef = useRef(null) // arrête la lecture des images
+  const photoRef = useRef(null)
   const pausedRef = useRef(false)
   const lastRef = useRef({ code: null, at: 0 })
   const resumeTimer = useRef(null)
 
-  const [camera, setCamera] = useState(cameraAvailable() ? 'starting' : 'off') // starting | on | off
+  const [camera, setCamera] = useState(cameraAvailable() ? 'starting' : 'off') // starting | tap | on | off
+  const [attempt, setAttempt] = useState(0) // « Réessayer » relance la caméra
   const [cameraError, setCameraError] = useState(cameraAvailable() ? null : cameraMessage({ name: 'NotFoundError' }))
   const [phase, setPhase] = useState('scan') // scan | looking | result | notfound
   const [code, setCode] = useState(null)
@@ -76,27 +86,83 @@ export default function BarcodeScanner({ statusOf, onAdd, onGotIt, onClose, offl
     [lookup]
   )
 
-  // Caméra
+  // Caméra : on l'ouvre, on vérifie que l'image arrive, puis on lit les codes
+  const detectedRef = useRef(onDetected)
+  detectedRef.current = onDetected
+  const startReading = useCallback(() => {
+    decodingRef.current?.()
+    decodingRef.current = startDecoding(videoRef.current, (raw) => detectedRef.current(raw))
+    setCamera('on')
+  }, [])
+
   useEffect(() => {
     if (!cameraAvailable()) return
     let cancelled = false
-    startScanner(videoRef.current, onDetected)
-      .then((s) => {
-        if (cancelled) return s.stop()
-        scannerRef.current = s
-        setCamera('on')
-      })
-      .catch((e) => {
+    setCamera('starting')
+    setCameraError(null)
+    ;(async () => {
+      try {
+        const cam = await openCamera(videoRef.current)
+        if (cancelled) return cam.stop()
+        cameraRef.current = cam
+        // L'iPhone veut parfois un toucher avant d'afficher l'image
+        if (cam.needsTap || !(await waitFrames(videoRef.current))) {
+          if (!cancelled) setCamera('tap')
+          return
+        }
+        if (!cancelled) startReading()
+      } catch (e) {
         if (cancelled) return
         setCamera('off')
         setCameraError(cameraMessage(e))
-      })
+      }
+    })()
     return () => {
       cancelled = true
-      scannerRef.current?.stop()
-      scannerRef.current = null
+      decodingRef.current?.()
+      decodingRef.current = null
+      cameraRef.current?.stop()
+      cameraRef.current = null
     }
-  }, [onDetected])
+  }, [attempt, startReading])
+
+  // Toucher pour lancer l'image (iPhone)
+  async function tapToStart() {
+    try {
+      await videoRef.current.play()
+    } catch {
+      // on vérifie juste après si l'image arrive quand même
+    }
+    if (await waitFrames(videoRef.current, 3000)) startReading()
+    else {
+      cameraRef.current?.stop()
+      cameraRef.current = null
+      setCamera('off')
+      setCameraError(cameraMessage({ name: 'NoFramesError' }))
+    }
+  }
+
+  // Photo du code-barres (marche partout, même quand la caméra en direct refuse)
+  async function onPhoto(e) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // pour pouvoir reprendre la même photo
+    if (!file) return
+    pausedRef.current = true
+    setPhase('looking')
+    setCode(null)
+    setLookupError(null)
+    let found = null
+    try {
+      found = await decodeImageFile(file)
+    } catch {
+      found = null
+    }
+    if (found) lookup(found)
+    else {
+      setLookupError('Code-barres illisible sur cette photo. Reprends-la de plus près, bien à plat et nette, ou tape les chiffres.')
+      setPhase('notfound')
+    }
+  }
 
   useEffect(() => () => clearTimeout(resumeTimer.current), [])
 
@@ -185,9 +251,30 @@ export default function BarcodeScanner({ statusOf, onAdd, onGotIt, onClose, offl
                 Ouverture de la caméra…
               </div>
             )}
+            {camera === 'tap' && (
+              <button
+                type="button"
+                onClick={tapToStart}
+                className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 text-sm font-bold text-white"
+              >
+                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 ring-2 ring-white/40">
+                  <CameraIcon width={26} height={26} />
+                </span>
+                Touche pour lancer la caméra
+              </button>
+            )}
             {camera === 'off' && (
-              <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm leading-relaxed text-ink/85">
-                {cameraError}
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm leading-relaxed text-ink/85">
+                <p>{cameraError}</p>
+                {cameraAvailable() && window.isSecureContext && (
+                  <button
+                    type="button"
+                    onClick={() => setAttempt((a) => a + 1)}
+                    className="rounded-full bg-ink px-4 py-2 text-xs font-bold text-accent transition hover:bg-surface"
+                  >
+                    Réessayer
+                  </button>
+                )}
               </div>
             )}
 
@@ -196,8 +283,8 @@ export default function BarcodeScanner({ statusOf, onAdd, onGotIt, onClose, offl
             {phase === 'looking' && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm font-medium">
                 <span className="vinyl-disc animate-rotate block h-12 w-12" style={{ '--disc-label': '#f1c04e' }} />
-                Recherche sur Discogs…
-                <span className="font-mono text-xs text-ink/70">{code}</span>
+                {code ? 'Recherche sur Discogs…' : 'Lecture de la photo…'}
+                {code && <span className="font-mono text-xs text-ink/70">{code}</span>}
               </div>
             )}
           </div>
@@ -262,7 +349,9 @@ export default function BarcodeScanner({ statusOf, onAdd, onGotIt, onClose, offl
 
             {phase === 'notfound' && (
               <div className="animate-pop mt-4 rounded-2xl bg-surface p-4 text-sm text-paper">
-                <p className="font-bold">{lookupError ? 'Recherche impossible' : 'Introuvable sur Discogs'}</p>
+                <p className="font-bold">
+                  {lookupError ? (code ? 'Recherche impossible' : 'Photo illisible') : 'Introuvable sur Discogs'}
+                </p>
                 <p className="mt-1 text-muted">
                   {lookupError || <>Aucun disque avec le code <span className="font-mono">{code}</span>. Essaie la recherche par nom.</>}
                 </p>
@@ -278,6 +367,19 @@ export default function BarcodeScanner({ statusOf, onAdd, onGotIt, onClose, offl
               </button>
             )}
           </div>
+
+          {/* Photo du code-barres */}
+          <input ref={photoRef} type="file" accept="image/*" capture="environment" onChange={onPhoto} className="hidden" />
+          <button
+            type="button"
+            onClick={() => photoRef.current?.click()}
+            disabled={offline || phase === 'looking'}
+            className={`mt-4 flex w-full items-center justify-center gap-2 rounded-full py-2.5 text-sm font-bold transition disabled:opacity-50 ${
+              camera === 'on' ? 'border border-ink/30 text-ink hover:bg-ink/10' : 'bg-ink text-accent hover:bg-surface'
+            }`}
+          >
+            <CameraIcon /> Prendre le code en photo
+          </button>
 
           {/* Saisie à la main */}
           <form onSubmit={submitManual} className="mt-4">

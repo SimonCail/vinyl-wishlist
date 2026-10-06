@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { SORT_OPTIONS } from '../lib/listUtils'
 import { SearchIcon, CloseIcon } from './Icons'
@@ -123,13 +123,28 @@ function FilterSheet({ options, sort, onSort, genres, genre, onGenre, people, ha
 // Téléphone : une barre accrochée en haut (recherche + « Filtres ») et une
 // ligne de genres qui défile sur le côté ; le reste dans le panneau du bas.
 // Ordinateur : tout est visible.
+// placeholder : où on cherche (« Chercher dans mes souhaits »), pour ne pas
+// confondre avec la barre « Ajouter un disque » du haut
 export default function ListToolbar({
   search, onSearch, sort, onSort,
   genres = [], genre, onGenre, person, onPerson,
   members, meId, sharedCount = 0, mode,
-  hasFilters, onReset,
+  hasFilters, onReset, placeholder = 'Chercher dans la liste',
 }) {
   const [sheet, setSheet] = useState(false)
+  // Téléphone : la recherche dans la liste est repliée en une loupe
+  const [searchOpen, setSearchOpen] = useState(false)
+  const mobileInput = useRef(null)
+  const searchShown = searchOpen || !!search
+  // « Chercher dans mes souhaits » → « Dans mes souhaits » (bouton replié)
+  const shortLabel = placeholder.replace(/^Chercher d/, 'D')
+  useEffect(() => {
+    if (searchOpen) mobileInput.current?.focus()
+  }, [searchOpen])
+  // Recherche vidée ailleurs (ex. envoyée à « Ajouter un disque ») : on replie
+  useEffect(() => {
+    if (!search && document.activeElement !== mobileInput.current) setSearchOpen(false)
+  }, [search])
   // La priorité n'a de sens que pour les souhaits
   const options = SORT_OPTIONS.filter((o) => mode !== 'owned' || o.value !== 'priority')
   const showPeople = members && members.length > 1
@@ -144,10 +159,10 @@ export default function ListToolbar({
       <input
         value={search}
         onChange={(e) => onSearch(e.target.value)}
-        placeholder="Filtrer dans la liste…"
-        aria-label="Filtrer dans la liste"
+        placeholder={`${placeholder}…`}
+        aria-label={placeholder}
         enterKeyHint="search"
-        className="w-full rounded-full border border-line bg-surface py-2.5 pl-10 pr-9 text-sm outline-none transition placeholder:text-muted/70 focus:border-accent sm:rounded-xl"
+        className="w-full rounded-xl border border-line bg-surface py-2.5 pl-10 pr-9 text-sm outline-none transition placeholder:text-muted/70 focus:border-accent"
       />
       {search && (
         <button
@@ -161,29 +176,78 @@ export default function ListToolbar({
     </div>
   )
 
+  const filtersButton = (
+    <button
+      onClick={() => setSheet(true)}
+      aria-label={activeCount ? `Filtres (${activeCount} actifs)` : 'Filtres'}
+      className={`flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full border px-4 text-sm font-medium transition ${
+        activeCount ? 'border-accent bg-accent text-ink' : 'border-line bg-surface text-paper'
+      }`}
+    >
+      <FilterIcon />
+      Filtres
+      {activeCount > 0 && (
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1 font-mono text-[11px] font-bold text-accent">
+          {activeCount}
+        </span>
+      )}
+    </button>
+  )
+
   return (
     // Téléphone : toute la barre reste accrochée sous la barre du haut pendant qu'on fait défiler
     <div className="sticky top-16 z-20 -mx-5 mb-6 border-b border-line/60 bg-ink/90 px-5 py-3 backdrop-blur-md sm:static sm:mx-0 sm:mb-8 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
       {/* --- Téléphone --- */}
       <div className="space-y-2.5 sm:hidden">
-        <div className="flex gap-2">
-          {searchField}
-          <button
-            onClick={() => setSheet(true)}
-            aria-label={activeCount ? `Filtres (${activeCount} actifs)` : 'Filtres'}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition ${
-              activeCount ? 'border-accent bg-accent text-ink' : 'border-line bg-surface text-paper'
-            }`}
-          >
-            <FilterIcon />
-            Filtres
-            {activeCount > 0 && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1 font-mono text-[11px] font-bold text-accent">
-                {activeCount}
-              </span>
-            )}
-          </button>
-        </div>
+        {searchShown ? (
+          // Recherche dans la liste ouverte
+          <div className="flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <SearchIcon width={18} height={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                ref={mobileInput}
+                value={search}
+                onChange={(e) => onSearch(e.target.value)}
+                placeholder={`${placeholder}…`}
+                aria-label={placeholder}
+                enterKeyHint="search"
+                className="h-11 w-full rounded-full border border-line bg-surface pl-10 pr-4 text-base outline-none transition placeholder:text-muted/70 focus:border-accent"
+              />
+            </div>
+            <button
+              onClick={() => setSheet(true)}
+              aria-label={activeCount ? `Filtres (${activeCount} actifs)` : 'Filtres'}
+              className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition ${
+                activeCount ? 'border-accent bg-accent text-ink' : 'border-line bg-surface text-paper'
+              }`}
+            >
+              <FilterIcon />
+            </button>
+            <button
+              onClick={() => {
+                onSearch('')
+                setSearchOpen(false)
+              }}
+              aria-label="Fermer la recherche dans la liste"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-muted transition hover:text-paper"
+            >
+              <CloseIcon width={16} height={16} />
+            </button>
+          </div>
+        ) : (
+          // Repliée : « Filtres » prend la place libre, la loupe garde la largeur de son texte
+          <div className="flex items-center gap-2">
+            {filtersButton}
+            <button
+              onClick={() => setSearchOpen(true)}
+              aria-label={placeholder}
+              className="flex h-11 min-w-0 max-w-[60%] shrink-0 items-center justify-center gap-2 rounded-full border border-line bg-surface px-4 text-sm font-medium text-muted transition hover:text-paper"
+            >
+              <SearchIcon width={18} height={18} className="shrink-0" />
+              <span className="truncate">{shortLabel}</span>
+            </button>
+          </div>
+        )}
         {genres.length > 0 && (
           <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5">
             <Chip active={!genre} onClick={() => onGenre('')}>

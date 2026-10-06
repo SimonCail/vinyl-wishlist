@@ -42,7 +42,7 @@ import { useMessages, vinylPayload } from './hooks/useMessages'
 import { useRoute, matchRoute, paths } from './lib/router'
 import { Avatar, AvatarStack } from './components/Avatar'
 import { ConfirmDialog, NoteDialog } from './components/Dialogs'
-import { ShareIcon } from './components/Icons'
+import { ShareIcon, PlusIcon } from './components/Icons'
 
 // Disque à compléter : jamais passé par Discogs, ou pochette jamais cherchée.
 // cover_url = '' veut dire « cherchée, Discogs n'en a pas » : on ne réessaie pas.
@@ -88,6 +88,12 @@ export default function App() {
   const isListPage = route.name === 'home' || route.name === 'room' || route.name === 'friend'
   const [tab, setTab] = useState('wish')
   const [search, setSearch] = useState('')
+  // Recherche à lancer dans la barre « Ajouter un disque » (tapée par erreur dans le filtre)
+  const [addSeed, setAddSeed] = useState(null)
+  function searchToAdd(text) {
+    setAddSeed({ text, n: Date.now() })
+    setSearch('')
+  }
   const [sort, setSort] = useState('recent')
   const [genre, setGenre] = useState('')
   const [person, setPerson] = useState('')
@@ -646,6 +652,7 @@ export default function App() {
 
   async function handleSignUp(fields) {
     const redirectTo = inviteCode ? inviteUrl(inviteCode) : window.location.origin
+    // (le pseudo déjà pris est vérifié dans useAuth)
     const res = await auth.signUp({ ...fields, redirectTo })
     if (!res.error && !res.needsConfirmation) setAuthMode(null)
     return res
@@ -661,7 +668,7 @@ export default function App() {
   // Après un changement, on recharge les salons pour que les autres membres
   // (et mes avatars dans les salons) affichent la nouvelle version
   async function saveProfile(patch) {
-    const err = await auth.updateProfile(patch)
+    const err = await auth.updateProfile(patch) // pseudo déjà pris : refusé avec un message
     if (!err) reloadRooms()
     return err
   }
@@ -710,6 +717,8 @@ export default function App() {
   )
   // Liste partagée (salon) ou de quelqu'un d'autre (ami) : les disques des autres sont en lecture seule
   const shared = !!room || !!friend
+  // Texte tapé dans le filtre de la liste : on peut l'envoyer à « Ajouter un disque »
+  const canSearchToAdd = !friend && online && search.trim().length >= 2
   const lists = useMemo(
     () => ({
       wish: mergeItems(items, members, 'wish', userId),
@@ -853,6 +862,7 @@ export default function App() {
       onSignUp={handleSignUp}
       onReset={auth.resetPassword}
       onUpdatePassword={handleUpdatePassword}
+      onCheckPseudo={auth.checkPseudo}
       onClose={auth.recovering ? undefined : () => setAuthMode(null)}
     />
   )
@@ -1108,6 +1118,7 @@ export default function App() {
           onError={(msg) => toast(msg, 'error')}
           onScan={() => setScannerOpen(true)}
           offline={!online}
+          seed={addSeed}
         />
         )}
         {!friend && myItems.length < 10 && !loading && (
@@ -1179,6 +1190,11 @@ export default function App() {
                 mode={tab}
                 hasFilters={hasFilters}
                 onReset={resetFilters}
+                placeholder={`Chercher dans ${
+                  friend ? `les ${tab === 'wish' ? 'souhaits' : 'disques'} de ${friend.name}`
+                  : room ? `les ${tab === 'wish' ? 'souhaits' : 'collections'} du salon`
+                  : tab === 'wish' ? 'mes souhaits' : 'ma collection'
+                }`}
               />
             </>
           )}
@@ -1208,16 +1224,49 @@ export default function App() {
             </div>
           ) : visible.length === 0 ? (
             <div className="py-10 text-center">
-              <p className="text-muted">Aucun disque ne correspond à ces filtres.</p>
-              <button
-                onClick={resetFilters}
-                className="mt-3 rounded-full border border-line px-4 py-1.5 text-sm transition hover:border-accent"
-              >
-                Réinitialiser
-              </button>
+              {canSearchToAdd ? (
+                <>
+                  {/* Sans doute tapé ici pour ajouter un disque : on propose la bonne barre */}
+                  <p className="text-muted">
+                    Aucun disque « {search.trim()} » dans {tab === 'wish' ? 'tes souhaits' : 'ta collection'}{room ? ' ni dans le salon' : ''}.
+                  </p>
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    <button
+                      onClick={() => searchToAdd(search.trim())}
+                      className="flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-sm font-bold text-ink transition hover:bg-accent-soft"
+                    >
+                      <PlusIcon width={16} height={16} /> Chercher « {search.trim()} » pour l’ajouter
+                    </button>
+                    <button
+                      onClick={resetFilters}
+                      className="rounded-full border border-line px-4 py-2 text-sm transition hover:border-accent"
+                    >
+                      Effacer
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-muted">Aucun disque ne correspond à ces filtres.</p>
+                  <button
+                    onClick={resetFilters}
+                    className="mt-3 rounded-full border border-line px-4 py-1.5 text-sm transition hover:border-accent"
+                  >
+                    Réinitialiser
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <>
+            {canSearchToAdd && (
+              <p className="-mt-2 mb-5 text-sm text-muted">
+                Tu veux ajouter un disque ?{' '}
+                <button onClick={() => searchToAdd(search.trim())} className="font-medium text-accent underline-offset-4 hover:underline">
+                  Chercher « {search.trim()} » pour l’ajouter
+                </button>
+              </p>
+            )}
             <ul className={gridClass}>
               {pageItems.map((v, i) => (
                 <VinylCard

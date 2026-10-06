@@ -22,7 +22,7 @@ export default function ShelfTabs({ tab, onTab, counts, actions }) {
                   active ? 'text-paper' : 'text-muted/50 hover:text-muted'
                 }`}
               >
-                <span className="font-display text-[clamp(1.6rem,7.2vw,3rem)] font-black uppercase leading-[0.85]">
+                <span className="font-display text-[clamp(1.25rem,6.2vw,3rem)] font-black uppercase leading-[0.85]">
                   {t.label}
                 </span>
                 <span

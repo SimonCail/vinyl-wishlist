@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Cover from './Cover'
-import { SearchIcon, CloseIcon, PlusIcon, CheckIcon } from './Icons'
+import { CloseIcon, PlusIcon, CheckIcon } from './Icons'
 import { searchVinyls, searchArtists, getArtistAlbums, itemKey } from '../lib/discogs'
 
 const DEBOUNCE_MS = 400
@@ -19,7 +19,8 @@ function BarcodeIcon(p) {
   )
 }
 
-export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan, offline }) {
+// seed : { text, n } — lance une recherche venue d'ailleurs (ex. tapée par erreur dans le filtre de la liste)
+export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan, offline, seed }) {
   const [query, setQuery] = useState('')
   const [artists, setArtists] = useState([])
   const [results, setResults] = useState([])
@@ -31,6 +32,7 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
   // est gardée, il suffit de recliquer dans la barre pour les revoir
   const [open, setOpen] = useState(true)
   const rootRef = useRef(null)
+  const inputRef = useRef(null)
 
   // Sert à ignorer les réponses des recherches déjà dépassées
   const requestId = useRef(0)
@@ -79,6 +81,18 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
       if (id === requestId.current) setSearching(false)
     }
   }
+
+  // Recherche envoyée depuis le filtre de la liste : on la lance ici
+  useEffect(() => {
+    const text = seed?.text?.trim()
+    if (!text) return
+    setQuery(text)
+    setOpen(true)
+    if (text.length >= MIN_CHARS) runSearch(text)
+    rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    inputRef.current?.focus({ preventScroll: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed?.n])
 
   // Recherche automatique après une courte pause de frappe
   useEffect(() => {
@@ -147,22 +161,24 @@ export default function SearchPanel({ statusOf, onAdd, onGotIt, onError, onScan,
   const smallBtn = 'rounded-full px-3 py-1.5 text-xs transition disabled:opacity-50'
 
   return (
-    <section ref={rootRef}>
+    <section ref={rootRef} className="scroll-mt-24">
       <div className="flex gap-2">
         <form onSubmit={handleSubmit} className="relative min-w-0 flex-1">
-          <SearchIcon className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-muted" />
+          <PlusIcon width={22} height={22} className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-accent" />
           <input
+            ref={inputRef}
+            id="add-search"
+            aria-label="Ajouter un disque"
             value={query}
             onChange={handleChange}
             onFocus={() => setOpen(true)}
             enterKeyHint="search"
             autoComplete="off"
             disabled={offline}
-            aria-label="Chercher un disque à ajouter"
             placeholder={
               offline
                 ? 'Recherche indisponible hors-ligne'
-                : 'Un artiste, un album… (ex. Josman, Discovery)'
+                : 'Artiste, album…'
             }
             className="w-full rounded-2xl border border-line bg-surface py-4 pl-14 pr-14 text-base shadow-[0_10px_30px_-14px_rgba(27,36,32,0.35)] outline-none transition placeholder:text-muted/70 focus:border-accent focus:shadow-[0_14px_36px_-14px_color-mix(in_oklab,var(--color-accent)_50%,transparent)] focus:ring-4 focus:ring-accent/10"
           />

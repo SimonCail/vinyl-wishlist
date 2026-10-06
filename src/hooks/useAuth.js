@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PROFILE_KEY, clearUserCache, readJSON, writeJSON } from '../lib/cache'
 import { uploadAvatar, removeAvatars } from '../lib/avatar'
+import { pseudoError } from '../lib/validation'
 
 // Colonnes du profil, de la plus complète à la plus courte : tant qu'un script
 // SQL (4, 5…) n'est pas lancé, on se rabat sur ce qui existe déjà.
@@ -26,7 +27,7 @@ function authMessage(error) {
     case 'email_exists':
       return 'Un compte existe déjà avec cet email. Connecte-toi plutôt.'
     case 'weak_password':
-      return 'Mot de passe trop faible (6 caractères minimum).'
+      return 'Mot de passe trop faible : 8 caractères minimum, avec une majuscule, une minuscule, un chiffre et un caractère spécial.'
     case 'email_address_invalid':
     case 'validation_failed':
       return 'Cet email ne semble pas valide.'
@@ -38,6 +39,24 @@ function authMessage(error) {
   if (error.status === 429) return "Trop d'essais, patiente quelques minutes."
   if (!navigator.onLine) return 'Pas de connexion internet.'
   return 'Ça n’a pas marché, réessaie.'
+}
+
+// --- Pseudos : un pseudo = une seule personne (script 11-pseudo-unique.sql) ---
+const pseudoTaken = (pseudo) => `Le pseudo « ${pseudo} » est déjà pris. Choisis-en un autre.`
+const isPseudoInvalid = (error) => /pseudo_invalid|pseudo_reserved/i.test(`${error?.message || ''}`)
+const isPseudoError = (error) =>
+  /pseudo_taken|profiles_name_unique|duplicate key|database error saving new user/i.test(
+    `${error?.message || ''} ${error?.code || ''}`
+  )
+
+// Le pseudo est-il libre ? 'free' | 'taken' | 'unknown' (vide, ou vérification impossible)
+// Mon propre pseudo compte comme libre pour moi.
+export async function checkPseudo(raw) {
+  const pseudo = (raw ?? '').trim()
+  if (!pseudo) return 'unknown'
+  const { data, error } = await supabase.rpc('pseudo_available', { pseudo })
+  if (error) return 'unknown'
+  return data ? 'free' : 'taken'
 }
 
 export function useAuth() {
@@ -64,7 +83,7 @@ export function useAuth() {
   const user = session?.user ?? null
   const userId = user?.id
 
-  // Profil (prénom, couleur, photo), gardé en cache pour le hors-ligne
+  // Profil (pseudo, couleur, photo), gardé en cache pour le hors-ligne
   const loadProfile = useCallback(async () => {
     if (!userId) return
     let data = null
@@ -92,12 +111,22 @@ export function useAuth() {
 
   // Renvoie { error, needsConfirmation }
   async function signUp({ name, email, password, redirectTo }) {
+    const pseudo = (name ?? '').trim()
+    const invalid = pseudoError(pseudo)
+    if (invalid) return { error: invalid }
+    // Pseudo déjà pris : on le dit tout de suite, aucun compte n'est créé
+    if ((await checkPseudo(pseudo)) === 'taken') return { error: pseudoTaken(pseudo) }
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name }, emailRedirectTo: redirectTo },
+      options: { data: { name: pseudo }, emailRedirectTo: redirectTo },
     })
-    if (error) return { error: authMessage(error) }
+    if (error) {
+      // La base refuse un pseudo pris entre-temps (Supabase dit juste « Database error »)
+      if (isPseudoError(error) && (await checkPseudo(pseudo)) === 'taken') return { error: pseudoTaken(pseudo) }
+      if (isPseudoInvalid(error)) return { error: 'Ce pseudo n’est pas valide.' }
+      return { error: authMessage(error) }
+    }
     // Supabase renvoie un utilisateur sans identités si l'email est déjà pris
     if (data.user && data.user.identities?.length === 0) {
       return { error: authMessage({ code: 'user_already_exists' }) }
@@ -132,6 +161,15 @@ export function useAuth() {
 
   // patch : { name, color, avatar_path } (une partie suffit). Renvoie un message d'erreur ou null.
   async function updateProfile(patch) {
+    if (typeof patch.name === 'string') {
+      const pseudo = patch.name.trim()
+      const changed = pseudo !== (profile?.name ?? '').trim()
+      // Les règles s'appliquent quand on change de pseudo (les anciens pseudos restent valables)
+      const invalid = changed && pseudoError(pseudo)
+      if (invalid) return invalid
+      if (changed && (await checkPseudo(pseudo)) === 'taken') return pseudoTaken(pseudo)
+      patch = { ...patch, name: pseudo }
+    }
     const { data, error } = await supabase
       .from('profiles')
       .update(patch)
@@ -143,6 +181,8 @@ export function useAuth() {
         ? 'Lance d’abord le script 5-platine.sql dans Supabase.'
         : 'Lance d’abord le script 4-avatars-artistes.sql dans Supabase.'
     }
+    if (error && isPseudoInvalid(error)) return pseudoError(patch.name) || 'Ce pseudo n’est pas valide.'
+    if (error && isPseudoError(error)) return pseudoTaken(patch.name ?? '')
     if (error) return navigator.onLine ? 'Enregistrement impossible, réessaie.' : 'Pas de connexion internet.'
     saveProfileLocally(data)
     return null
@@ -228,6 +268,7 @@ export function useAuth() {
     ready,
     user,
     me,
+    checkPseudo,
     recovering,
     signIn,
     signUp,
