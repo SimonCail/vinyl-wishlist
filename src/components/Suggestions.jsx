@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { tasteBatch, peopleSuggestions, mergeSuggestions, verifyVinyl, knownVinyl, albumKeys, norm } from '../lib/suggest'
 import { usePlayer, toggle } from '../lib/player'
 import { Avatar } from './Avatar'
@@ -98,6 +98,62 @@ function SuggestionCard({ s, status, onAdd }) {
         )}
       </div>
     </li>
+  )
+}
+
+const ArrowIcon = ({ dir }) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={dir < 0 ? 'm15 5-7 7 7 7' : 'm9 5 7 7-7 7'} />
+  </svg>
+)
+
+// Ligne qui défile sur le côté. Au doigt ou au pavé tactile, on glisse ;
+// avec une souris (ordinateur), des flèches ‹ › apparaissent sur les côtés.
+function ScrollRow({ className, children }) {
+  const ref = useRef(null)
+  const [edges, setEdges] = useState({ left: false, right: false })
+  const update = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    const left = el.scrollLeft > 4
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4
+    setEdges((e) => (e.left === left && e.right === right ? e : { left, right }))
+  }, [])
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.addEventListener('scroll', update, { passive: true })
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', update)
+      ro.disconnect()
+    }
+  }, [update])
+  useEffect(update) // les cartes ont changé
+  const go = (dir) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.85, behavior: 'smooth' })
+
+  return (
+    <div className="relative">
+      <ul ref={ref} className={className}>
+        {children}
+      </ul>
+      {[-1, 1].map((dir) =>
+        (dir < 0 ? edges.left : edges.right) ? (
+          <button
+            key={dir}
+            type="button"
+            onClick={() => go(dir)}
+            aria-label={dir < 0 ? 'Suggestions précédentes' : 'Suggestions suivantes'}
+            className={`absolute top-[5.5rem] z-10 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-surface/95 text-paper shadow-lg backdrop-blur transition hover:scale-105 hover:border-accent pointer-fine:flex sm:top-24 ${
+              dir < 0 ? '-left-3' : '-right-3'
+            }`}
+          >
+            <ArrowIcon dir={dir} />
+          </button>
+        ) : null
+      )}
+    </div>
   )
 }
 
@@ -201,6 +257,7 @@ export default function Suggestions({ myItems, others, statusOf, onAdd, online }
     const fromCache = new Map()
     const todo = []
     for (const s of tasteCandidates) {
+      if (s.item.discogs_id) continue // déjà un vinyle Discogs : rien à vérifier
       const known = knownVinyl(s.item)
       if (known) fromCache.set(s.item.deezer_id, known.vinyl)
       else todo.push(s.item)
@@ -255,10 +312,10 @@ export default function Suggestions({ myItems, others, statusOf, onAdd, online }
       return { ...s, vinyl, keys }
     }
     return {
-      taste: tasteCandidates.map((s) => keep(s, checked.get(s.item.deezer_id))).filter(Boolean),
+      taste: tasteCandidates.map((s) => keep(s, s.item.discogs_id ? s.item : checked.get(s.item.deezer_id))).filter(Boolean),
       people: peopleCandidates.map((s) => keep(s, s.item)).filter(Boolean),
       // Pistes pas encore vérifiées et jamais montrées : elles arriveront bientôt
-      waiting: tasteCandidates.filter((s) => !checked.has(s.item.deezer_id) && !errored.has(s.item.deezer_id)).length,
+      waiting: tasteCandidates.filter((s) => !s.item.discogs_id && !checked.has(s.item.deezer_id) && !errored.has(s.item.deezer_id)).length,
     }
   }, [tasteCandidates, peopleCandidates, checked, errored, mine, seen])
 
@@ -297,17 +354,19 @@ export default function Suggestions({ myItems, others, statusOf, onAdd, online }
   }, [list, shown.length, pageId])
 
   // Il reste peu d'idées d'avance : on prépare la fournée suivante
-  const ahead = pool.taste.length - list.filter((s) => !s.item.discogs_id).length + pool.waiting
+  const ahead = pool.taste.length - list.filter((s) => !s.people).length + pool.waiting
   useEffect(() => {
-    if (ahead < PAGE * 2 && more && want <= batches.length) setWant(batches.length + 1)
+    // Deux pages d'avance (sans compter celle affichée), pour ne jamais attendre
+    if (ahead < PAGE * 3 && more && want <= batches.length) setWant(batches.length + 1)
   }, [ahead, more, want, batches.length])
 
   // La page suivante est-elle prête ? (sinon le bouton attend, plutôt que d'afficher une page vide)
   const onPage = new Set(list.flatMap((s) => s.keys))
   const notOnPage = (s) => !s.keys.some((k) => onPage.has(k))
-  const nextReady = pool.taste.filter(notOnPage).length + Math.min(PEOPLE_PER_PAGE, pool.people.filter(notOnPage).length)
+  const nextReady = pool.taste.filter(notOnPage).length + Math.min(2, pool.people.filter(notOnPage).length) // 2 disques de proches par page (cartes 4 et 8)
   const stillComing = pool.waiting > 0 || batchLoading || (more && !error)
-  const canAdvance = nextReady >= Math.min(6, PAGE) || !stillComing
+  // Toujours une page entière : on attend que les 10 suivants soient prêts
+  const canAdvance = nextReady >= PAGE || !stillComing
 
   function otherIdeas() {
     if (!canAdvance) return
@@ -330,7 +389,7 @@ export default function Suggestions({ myItems, others, statusOf, onAdd, online }
   const busy = batchLoading || pool.waiting > 0
   const loading = online && list.length === 0 && (busy || (batches.length === 0 && !error))
   const ghosts = online && !loading && busy ? Math.max(0, PAGE - list.length) : 0
-  const tasteShown = list.some((s) => !s.item.discogs_id)
+  const tasteShown = list.some((s) => !s.people)
 
   return (
     <section className="space-y-4">
@@ -369,7 +428,7 @@ export default function Suggestions({ myItems, others, statusOf, onAdd, online }
               : 'Ajoute quelques disques de plus pour avoir des suggestions.'}
         </p>
       ) : (
-        <ul key={round} className="no-scrollbar page-in -mx-5 flex snap-x scroll-px-5 gap-4 overflow-x-auto px-5 pb-2 sm:mx-0 sm:scroll-px-0 sm:px-0">
+        <ScrollRow key={round} className="no-scrollbar page-in -mx-5 flex snap-x scroll-px-5 gap-4 overflow-x-auto px-5 pb-2 sm:mx-0 sm:scroll-px-0 sm:px-0">
           {list.map((s) => (
             <SuggestionCard
               key={s.key}
@@ -381,7 +440,7 @@ export default function Suggestions({ myItems, others, statusOf, onAdd, online }
           {Array.from({ length: ghosts }).map((_, i) => (
             <Ghost key={`ghost-${i}`} />
           ))}
-        </ul>
+        </ScrollRow>
       )}
       {restarted && <p className="text-xs text-muted">Tu as fait le tour de tes suggestions : on reprend depuis le début.</p>}
       {!busy && failed > 0 && !tasteShown && list.length > 0 && (
