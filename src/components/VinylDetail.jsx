@@ -3,7 +3,6 @@ import Cover from './Cover'
 import { CloseIcon, ArrowIcon, StarIcon, CheckIcon, PlusIcon, NoteIcon } from './Icons'
 import { AvatarStack } from './Avatar'
 import { getDetails, peekDetails, discogsUrl } from '../lib/discogs'
-import { formatPrice } from '../lib/format'
 import { colorFor } from '../lib/palette'
 import StoreLinks from './StoreLinks'
 
@@ -73,7 +72,7 @@ export default function VinylDetail({
   vinyl, mode, inRoom, canAdd,
   onSync, onClose, onPriority, onGotIt, onNote, onMeToo,
 }) {
-  // Ce qu'on a déjà en cache s'affiche tout de suite ; le prix se met à jour derrière
+  // Ce qu'on a déjà en cache s'affiche tout de suite ; la version à jour arrive derrière
   const [details, setDetails] = useState(() => peekDetails(vinyl)?.data ?? null)
   const [fresh, setFresh] = useState(() => !!peekDetails(vinyl)?.fresh)
   const [error, setError] = useState(null)
@@ -100,16 +99,14 @@ export default function VinylDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vinyl.discogs_id, vinyl.discogs_type])
 
-  // Synchronise la base une seule fois (avec des infos à jour) si le prix a changé,
-  // ou si genres / pochette manquent
+  // Synchronise la base une seule fois (avec des infos à jour) si genres / pochette manquent
   useEffect(() => {
     if (!details || !fresh || synced.current || !vinyl.myItem) return
     synced.current = true
     const m = vinyl.myItem
-    const priceChanged = Number(details.lowest_price) !== Number(m.lowest_price)
     const needsGenres = !m.genres?.length && details.genres.length > 0
     const needsCover = m.cover_url == null || (!m.cover_url && !!details.cover_url)
-    if (priceChanged || needsGenres || needsCover) onSync(m, details)
+    if (needsGenres || needsCover) onSync(m, details)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [details, fresh])
 
@@ -122,8 +119,6 @@ export default function VinylDetail({
 
   const genres = details?.genres ?? vinyl.genres ?? []
   const styles = details?.styles ?? vinyl.styles ?? []
-  const price = details ? details.lowest_price : vinyl.lowest_price
-  const forSale = details ? details.num_for_sale : vinyl.num_for_sale
   const cover = vinyl.cover_url || details?.cover_url
   const videos = (details?.videos ?? []).filter((v) => v.uri?.startsWith('http')).slice(0, 4)
   const owners = vinyl.owners || []
@@ -259,29 +254,15 @@ export default function VinylDetail({
           </header>
 
           <div className="space-y-6 px-5 pb-6 sm:px-7">
-            {/* Prix */}
-            <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-ink/60 px-5 py-4">
-              {price != null ? (
-                <div>
-                  <p className="text-xs text-muted">Prix le plus bas en ce moment</p>
-                  <p className="mt-0.5 flex items-baseline gap-2">
-                    <span className="font-display text-3xl font-black leading-none text-accent">{formatPrice(price)}</span>
-                    {forSale != null && <span className="text-xs text-muted">{forSale} en vente</span>}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-sm text-muted">{details || error ? 'Aucune offre en ce moment.' : 'Recherche des prix…'}</p>
-              )}
-              <a
-                href={marketUrl(vinyl)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium transition hover:border-accent"
-              >
-                Voir les offres <ArrowIcon width={15} height={15} />
-              </a>
-            </section>
             <StoreLinks vinyl={vinyl} barcode={details?.barcode} />
+            <a
+              href={marketUrl(vinyl)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="-mt-3 inline-flex items-center gap-1 text-xs text-muted underline-offset-4 transition hover:text-paper hover:underline"
+            >
+              Introuvable en magasin ? Les occasions sur Discogs <ArrowIcon width={12} height={12} />
+            </a>
 
             {(genres.length > 0 || styles.length > 0) && (
               <div className="flex flex-wrap gap-2">

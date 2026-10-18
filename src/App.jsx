@@ -7,7 +7,7 @@ import { useFriends } from './hooks/useFriends'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { useInstallPrompt } from './hooks/useInstallPrompt'
 import {
-  mergeItems, filterByPerson, filterAndSort, getGenres, getTotals,
+  mergeItems, filterByPerson, filterAndSort, getGenres,
 } from './lib/listUtils'
 import { getDetails, itemKey } from './lib/discogs'
 import { readCache, writeCache } from './lib/cache'
@@ -19,7 +19,6 @@ import { ThemeToggle } from './components/ThemePicker'
 import ShelfTabs from './components/ShelfTabs'
 import Pagination, { usePageSize } from './components/Pagination'
 import Suggestions from './components/Suggestions'
-import ListSummary from './components/ListSummary'
 import ListToolbar from './components/ListToolbar'
 import SearchPanel from './components/SearchPanel'
 import VinylCard from './components/VinylCard'
@@ -46,6 +45,8 @@ import { ShareIcon, PlusIcon } from './components/Icons'
 
 // Disque à compléter : jamais passé par Discogs, ou pochette jamais cherchée.
 // cover_url = '' veut dire « cherchée, Discogs n'en a pas » : on ne réessaie pas.
+// Disque dont on n'a pas encore récupéré les infos (genres, pochette) sur Discogs.
+// (price_updated_at sert simplement de date de dernière récupération des infos.)
 const isIncomplete = (v) => !v.price_updated_at || v.cover_url == null
 
 const topBtn =
@@ -395,8 +396,6 @@ export default function App() {
       extra = {
         genres: d.genres,
         styles: d.styles,
-        lowest_price: d.lowest_price,
-        num_for_sale: d.num_for_sale,
         price_updated_at: new Date().toISOString(),
         // Pochette de la fiche album si la recherche n'en avait pas
         ...(!item.cover_url ? { cover_url: d.cover_url || '' } : {}),
@@ -467,19 +466,17 @@ export default function App() {
     await updateVinyl(mine.id, {
       genres: d.genres,
       styles: d.styles,
-      lowest_price: d.lowest_price,
-      num_for_sale: d.num_for_sale,
       price_updated_at: new Date().toISOString(),
       // Pochette manquante : on prend celle de la fiche Discogs ('' si elle n'en a pas)
       ...(!mine.cover_url ? { cover_url: d.cover_url || '' } : {}),
     })
   }
 
-  // Complète mes disques sans infos ou sans pochette ; sinon actualise tous mes prix
+  // Complète mes disques sans infos ou sans pochette (genres, pochette)
   async function refreshInfos() {
     if (!ensureOnline()) return
-    const stale = myItems.filter(isIncomplete)
-    const targets = stale.length ? stale : myItems
+    const targets = myItems.filter(isIncomplete)
+    if (!targets.length) return
     let failed = 0
 
     for (let i = 0; i < targets.length; i++) {
@@ -496,7 +493,7 @@ export default function App() {
 
     setRefreshing(null)
     if (failed) toast(`${failed} disque(s) n'ont pas pu être mis à jour`, 'error')
-    else toast('Infos et prix à jour')
+    else toast('Infos complétées')
   }
 
   // Import Discogs : ajoute les nouveaux disques par paquets de 100 et passe en
@@ -514,6 +511,8 @@ export default function App() {
       kind: item.kind,
       genres: item.genres,
       styles: item.styles,
+      // Genres et pochette déjà là : rien à compléter plus tard
+      price_updated_at: item.genres?.length && item.cover_url ? now : null,
       owner_id: userId,
       added_by: me.name,
       status,
@@ -748,7 +747,6 @@ export default function App() {
     () => filterAndSort(filterByPerson(all, activePerson), { sort, search, genre: activeGenre }),
     [all, activePerson, sort, search, activeGenre]
   )
-  const totals = useMemo(() => getTotals(visible), [visible])
 
   // Pages : on affiche les disques par paquets, avec 1, 2, 3… en bas
   const pageSize = usePageSize()
@@ -889,7 +887,7 @@ export default function App() {
           <div className="animate-pop rounded-3xl border border-line bg-surface p-6 shadow-[0_10px_30px_-18px_rgba(27,36,32,0.4)] sm:p-8">
             <ul className="grid gap-6 sm:grid-cols-3">
               {[
-                ['#ec5b3e', 'Tes souhaits', 'Les disques que tu veux, avec ton niveau d’envie et le prix le plus bas du moment.'],
+                ['#ec5b3e', 'Tes souhaits', 'Les disques que tu veux, avec ton niveau d’envie, et où les trouver.'],
                 ['#f1c04e', 'Ta collection', 'Ce que tu as déjà. « Je l’ai » fait passer un souhait exaucé dans ta collection.'],
                 ['#6aa6d6', 'Des salons', 'Avec un code, mets tout en commun avec ta moitié, tes amis ou ta famille.'],
               ].map(([color, title, text]) => (
@@ -924,12 +922,6 @@ export default function App() {
 
   const context = room ?? (friend ? { kind: 'friend', id: friend.id, friend } : { kind: 'me', me })
   const listLabel = tab === 'wish' ? 'Souhaits' : 'Collection'
-  const summaryLabel = hasFilters
-    ? 'Valeur de la sélection'
-    : {
-        wish: room ? 'Pour tout offrir au salon' : friend ? `Pour tout offrir à ${friend.name}` : 'Valeur de mes souhaits',
-        owned: room ? 'Valeur de vos collections' : friend ? 'Cote de sa collection' : 'Cote de ma collection',
-      }[tab]
   const emptyText = friend
     ? {
         wish: [`${friend.name} n’a pas encore de souhaits`, 'Reviens plus tard, ou glisse-lui l’idée d’en ajouter.'],
@@ -1141,18 +1133,16 @@ export default function App() {
             actions={
               (myItems.length > 0 || all.length > 0) && (
                 <div className="flex shrink-0 items-center gap-2">
-                  {myItems.length > 0 && (
+                  {(missingCount > 0 || refreshing) && (
                     <button
                       onClick={refreshInfos}
                       disabled={!!refreshing}
-                      title="Met à jour les prix de tes disques"
+                      title="Récupère les genres et les pochettes qui manquent"
                       className="rounded-full border border-line px-3 py-1 text-xs text-muted transition hover:border-accent hover:text-paper disabled:opacity-60"
                     >
                       {refreshing
                         ? `Mise à jour ${refreshing.done}/${refreshing.total}…`
-                        : missingCount > 0
-                          ? `Compléter les infos (${missingCount})`
-                          : 'Actualiser les prix'}
+                        : `Compléter les infos (${missingCount})`}
                     </button>
                   )}
                   <button
@@ -1169,11 +1159,6 @@ export default function App() {
 
           {all.length > 0 && (
             <>
-              <ListSummary
-                totals={totals}
-                label={summaryLabel}
-                note={tab === 'wish' ? 'Somme des offres les moins chères' : 'D’après les offres les moins chères'}
-              />
               <ListToolbar
                 search={search}
                 onSearch={setSearch}
@@ -1345,10 +1330,6 @@ export default function App() {
         <DiscogsImport
           statusOf={statusOf}
           onImport={importItems}
-          onCompletePrices={() => {
-            setImportOpen(false)
-            if (!refreshing) refreshInfos()
-          }}
           onClose={() => setImportOpen(false)}
           offline={!online}
         />

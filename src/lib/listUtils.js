@@ -39,10 +39,6 @@ export function mergeItems(items, members, status, meId) {
     } else {
       prev.priority = prev.mine ? prev.priority : Math.max(prev.priority, it.priority)
       if (prev.created_at < it.created_at) prev.created_at = it.created_at
-      if (prev.lowest_price == null && it.lowest_price != null) {
-        prev.lowest_price = it.lowest_price
-        prev.num_for_sale = it.num_for_sale
-      }
     }
   }
 
@@ -66,11 +62,9 @@ export const SORT_OPTIONS = [
   { value: 'artist', label: 'Artiste (A-Z)' },
   { value: 'title', label: 'Titre (A-Z)' },
   { value: 'year', label: 'Année (récent)' },
-  { value: 'price', label: 'Prix (croissant)' },
 ]
 
 const byRecent = (a, b) => new Date(b.created_at) - new Date(a.created_at)
-const priceOf = (v) => (v.lowest_price == null ? Infinity : Number(v.lowest_price))
 
 const sorters = {
   recent: byRecent,
@@ -78,12 +72,6 @@ const sorters = {
   artist: (a, b) => a.artist.localeCompare(b.artist, 'fr'),
   title: (a, b) => a.title.localeCompare(b.title, 'fr'),
   year: (a, b) => (Number(b.year) || 0) - (Number(a.year) || 0),
-  price: (a, b) => {
-    const pa = priceOf(a)
-    const pb = priceOf(b)
-    if (pa === pb) return byRecent(a, b)
-    return pa < pb ? -1 : 1
-  },
 }
 
 export function filterAndSort(vinyls, { sort, search, genre }) {
@@ -106,17 +94,4 @@ export function getGenres(vinyls) {
   return [...genres.entries()]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'fr'))
-}
-
-// Total des prix les plus bas, et nombre de disques sans prix
-export function getTotals(list) {
-  let total = 0
-  let pricedCount = 0
-  for (const v of list) {
-    if (v.lowest_price != null) {
-      total += Number(v.lowest_price)
-      pricedCount++
-    }
-  }
-  return { total, pricedCount, unpricedCount: list.length - pricedCount }
 }

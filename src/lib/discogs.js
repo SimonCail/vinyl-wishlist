@@ -300,9 +300,9 @@ export async function searchByBarcode(code) {
 
 // --- Détails d'un disque, avec cache ---
 // Les titres d'un album ne changent pas : on les garde sur l'appareil pour que
-// la fiche s'ouvre instantanément. Le prix, lui, est rafraîchi s'il date de plus
-// de FRESH_MS (on affiche l'ancien en attendant).
-const DETAILS_KEY = 'vinyl-wishlist-details-v1'
+// la fiche s'ouvre instantanément. On rafraîchit quand même s'ils datent de plus
+// de FRESH_MS (Discogs demande de ne pas garder ses données trop longtemps).
+const DETAILS_KEY = 'vinyl-wishlist-details-v2' // v2 : sans les prix
 const FRESH_MS = 6 * 60 * 60 * 1000 // 6 h
 const MAX_SAVED = 150
 
@@ -343,7 +343,7 @@ export function peekDetails(item) {
   return hit ? { data: hit.data, fresh: Date.now() - hit.at < FRESH_MS } : null
 }
 
-// Détails d'un disque : genres, prix le plus bas, pistes, vidéos, pochette.
+// Détails d'un disque : genres, pistes, vidéos, pochette.
 // Va toujours chercher la version à jour sur Discogs (et met le cache à jour).
 export function getDetails(item) {
   const key = itemKey(item)
@@ -353,13 +353,11 @@ export function getDetails(item) {
       ? `/releases/${item.discogs_id}`
       : `/masters/${item.discogs_id}`
 
-  const request = discogsFetch(path, { curr_abbr: 'EUR' })
+  const request = discogsFetch(path)
     .then((d) => {
       const data = {
         genres: d.genres || [],
         styles: d.styles || [],
-        lowest_price: d.lowest_price ?? null,
-        num_for_sale: d.num_for_sale ?? null,
         cover_url: primaryImage(d),
         barcode: (d.identifiers || []).find((i) => i.type === 'Barcode')?.value ?? null,
         tracklist: (d.tracklist || []).map((t) => ({

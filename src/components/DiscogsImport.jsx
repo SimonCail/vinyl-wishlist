@@ -55,7 +55,7 @@ function Stat({ n, label, muted }) {
 // Import d'une collection et/ou d'une wantlist Discogs publiques.
 // statusOf(item) -> 'wish' | 'owned' | null pour MA liste.
 // onImport(plan, onProgress) enregistre et renvoie { added, upgraded }.
-export default function DiscogsImport({ statusOf, onImport, onCompletePrices, onClose, offline }) {
+export default function DiscogsImport({ statusOf, onImport, onClose, offline }) {
   const [username, setUsername] = useState(() => readJSON(USER_KEY, ''))
   const [wantOwned, setWantOwned] = useState(true)
   const [wantWish, setWantWish] = useState(true)
@@ -282,21 +282,9 @@ export default function DiscogsImport({ statusOf, onImport, onCompletePrices, on
                   .
                 </p>
               </div>
-              {result.added > 0 && (
-                <p className="text-sm text-ink/80">
-                  Les prix ne viennent pas avec l’import. « Compléter les infos » va les chercher, un disque par seconde environ : tu peux laisser tourner.
-                </p>
-              )}
-              <div className="flex flex-col gap-2 sm:flex-row">
-                {result.added > 0 && (
-                  <button onClick={onCompletePrices} className="flex-1 rounded-full bg-ink py-3 font-bold text-accent transition hover:bg-surface">
-                    Compléter les prix maintenant
-                  </button>
-                )}
-                <button onClick={onClose} className="flex-1 rounded-full border border-ink/40 py-3 text-sm font-medium transition hover:bg-ink/10">
-                  Voir ma liste
-                </button>
-              </div>
+              <button onClick={onClose} className="w-full rounded-full bg-ink py-3 font-bold text-accent transition hover:bg-surface">
+                Voir ma liste
+              </button>
             </div>
           )}
         </div>

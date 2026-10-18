@@ -1,7 +1,6 @@
 import Cover from './Cover'
 import { StarIcon, TrashIcon, NoteIcon, ArrowIcon, CheckIcon, PlusIcon } from './Icons'
 import { AvatarStack, namesLabel } from './Avatar'
-import { formatPrice } from '../lib/format'
 import { discogsUrl, prefetchDetails } from '../lib/discogs'
 import { useRef } from 'react'
 import { colorFor } from '../lib/palette'
@@ -71,15 +70,6 @@ export default function VinylCard({
           )}
         </div>
 
-        {vinyl.lowest_price != null && (
-          <span
-            title={mode === 'wish' ? 'Prix le plus bas actuellement en vente' : 'Cote actuelle (offre la moins chère)'}
-            className="keep-day absolute -bottom-2 -left-2 z-10 -rotate-3 rounded-sm px-2 py-1 font-mono text-xs font-medium text-paper shadow-md transition duration-300 group-hover:rotate-2 group-hover:scale-110"
-            style={{ backgroundColor: color }}
-          >
-            {formatPrice(vinyl.lowest_price)}
-          </span>
-        )}
       </div>
 
       <div className="mt-4">
