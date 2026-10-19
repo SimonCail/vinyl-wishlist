@@ -12,8 +12,133 @@ const fieldError = 'border-red-500 focus:border-red-500 focus:ring-red-500/15'
 const TITLES = {
   login: ['Re-bonjour.', 'Connecte-toi pour retrouver tes disques et tes salons.'],
   signup: ['Ton bac à toi.', 'Tes souhaits et ta collection te suivent dans tous les salons que tu rejoins.'],
-  forgot: ['Mot de passe oublié.', 'Indique ton email : tu recevras un lien pour en choisir un nouveau.'],
+  forgot: ['Mot de passe oublié.', 'Indique ton email : tu recevras un code pour en choisir un nouveau.'],
   recovery: ['Nouveau mot de passe.', 'Choisis ton nouveau mot de passe.'],
+  verify: ['Vérifie tes mails.', ''],
+  forgotCode: ['Vérifie tes mails.', ''],
+}
+
+const RESEND_DELAY = 60 // secondes avant de pouvoir redemander un code
+
+// Étape « tape le code reçu par mail » : plus simple que le lien sur téléphone
+// (surtout avec l'app installée sur l'écran d'accueil, que le lien n'ouvre pas).
+// type : 'signup' (activer le compte) ou 'recovery' (mot de passe oublié)
+function CodeStep({ email, type, invite, onVerify, onResend, onBack, firstNote }) {
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [note, setNote] = useState(firstNote ?? null)
+  const [wait, setWait] = useState(firstNote ? 0 : RESEND_DELAY)
+  const inputRef = useRef(null)
+
+  // Compte à rebours avant « Renvoyer le code »
+  useEffect(() => {
+    if (wait <= 0) return
+    const t = setTimeout(() => setWait((w) => w - 1), 1000)
+    return () => clearTimeout(t)
+  }, [wait])
+
+  async function verify(value = code) {
+    if (busy) return
+    const digits = value.replace(/\D/g, '')
+    if (digits.length < 6) {
+      setError('Le code contient au moins 6 chiffres.')
+      inputRef.current?.focus()
+      return
+    }
+    setBusy(true)
+    setError(null)
+    const err = await onVerify(digits)
+    setBusy(false)
+    if (err) {
+      setError(err)
+      inputRef.current?.select()
+    }
+  }
+
+  function onChange(e) {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 10)
+    const pasted = digits.length - code.length >= 6 // collé, ou rempli par le clavier de l'iPhone
+    setCode(digits)
+    setError(null)
+    if (pasted) verify(digits)
+  }
+
+  async function resend() {
+    setNote(null)
+    setError(null)
+    const err = await onResend()
+    if (err) setError(err)
+    else {
+      setNote('Nouveau code envoyé. Seul le dernier reçu fonctionne.')
+      setCode('')
+      setWait(RESEND_DELAY)
+      inputRef.current?.focus()
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <p className="text-sm text-muted">
+        {type === 'recovery' ? 'Si un compte existe pour ' : 'On a envoyé un code à '}
+        <span className="font-bold text-paper">{email}</span>
+        {type === 'recovery' ? ', un code vient d’y être envoyé.' : '.'} Tape-le ici, ou touche le bouton dans le mail.
+      </p>
+      {note && <p className="mt-4 rounded-2xl bg-accent/10 px-4 py-3 text-sm text-accent">{note}</p>}
+      <form
+        className="mt-5"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault()
+          verify()
+        }}
+      >
+        <label htmlFor="auth-code" className="block text-xs font-medium text-muted">
+          Code reçu par mail
+        </label>
+        <input
+          ref={inputRef}
+          id="auth-code"
+          autoFocus
+          value={code}
+          onChange={onChange}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          pattern="[0-9]*"
+          maxLength={10}
+          placeholder="123456"
+          aria-invalid={!!error}
+          aria-describedby={error ? 'err-code' : undefined}
+          className={`${field} py-3.5 pl-[calc(1rem+0.35em)] text-center font-mono text-3xl font-bold tracking-[0.35em] placeholder:tracking-[0.35em] placeholder:text-muted/30 ${error ? fieldError : ''}`}
+        />
+        <Err id="err-code">{error}</Err>
+        <button
+          disabled={busy}
+          className="mt-4 w-full rounded-full bg-accent py-3 font-bold text-ink transition hover:bg-accent-soft disabled:opacity-50"
+        >
+          {busy ? '…' : type === 'recovery' ? 'Continuer' : invite ? 'Activer et rejoindre le salon' : 'Activer mon compte'}
+        </button>
+      </form>
+      <p className="mt-4 text-center text-xs text-muted">
+        Pas reçu ? Regarde dans les spams, ou{' '}
+        {wait > 0 ? (
+          <span>redemande-le dans {wait} s</span>
+        ) : (
+          <button type="button" onClick={resend} className="font-bold text-paper underline underline-offset-2">
+            renvoie le code
+          </button>
+        )}
+        .
+      </p>
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-3 w-full text-center text-xs text-muted underline-offset-2 hover:text-paper hover:underline"
+      >
+        ← Changer d’email
+      </button>
+    </div>
+  )
 }
 
 const EyeIcon = ({ off }) => (
@@ -36,6 +161,7 @@ const Err = ({ id, children }) =>
 // onCheckPseudo(pseudo) → 'free' | 'taken' | 'unknown' : vérifie en direct que le pseudo est libre
 export default function AuthDialog({
   initialMode = 'login', invite, onSignIn, onSignUp, onReset, onUpdatePassword, onClose, onCheckPseudo,
+  onVerifyCode, onResendCode,
 }) {
   const [mode, setMode] = useState(initialMode)
   const [name, setName] = useState('')
@@ -50,6 +176,7 @@ export default function AuthDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
+  const [pending, setPending] = useState(null) // { email, note? } : en attente du code reçu par mail
   const refs = { name: useRef(null), email: useRef(null), password: useRef(null), confirm: useRef(null) }
 
   const creating = mode === 'signup' || mode === 'recovery' // un nouveau mot de passe est choisi
@@ -106,6 +233,7 @@ export default function AuthDialog({
     setSubmitted(false)
     setTouched({})
     setConfirm('')
+    setPending(null)
   }
 
   async function submit(e) {
@@ -124,15 +252,32 @@ export default function AuthDialog({
     let err = null
     if (mode === 'login') {
       err = await onSignIn(mail, password)
+      // Compte pas encore activé : on propose de taper le code
+      if (err && /pas encore activé/.test(err) && onVerifyCode) {
+        setBusy(false)
+        setPending({ email: mail, note: 'Ton compte n’est pas encore activé. Tape le code reçu par mail à l’inscription, ou demandes-en un nouveau.' })
+        setMode('verify')
+        return
+      }
     } else if (mode === 'signup') {
       const res = await onSignUp({ name: name.trim(), email: mail, password })
       err = res.error
       if (!err && res.needsConfirmation) {
-        setInfo(`Presque fini ! Clique sur le lien envoyé à ${mail} pour activer ton compte${invite ? ' et rejoindre le salon' : ''}.`)
+        if (onVerifyCode) {
+          setPending({ email: mail })
+          setMode('verify')
+        } else {
+          setInfo(`Presque fini ! Touche le bouton du mail envoyé à ${mail} pour activer ton compte${invite ? ' et rejoindre le salon' : ''}.`)
+        }
       }
     } else if (mode === 'forgot') {
       err = await onReset(mail)
-      if (!err) setInfo(`Si un compte existe pour ${mail}, un lien vient de lui être envoyé.`)
+      if (!err) {
+        if (onVerifyCode) {
+          setPending({ email: mail })
+          setMode('forgotCode')
+        } else setInfo(`Si un compte existe pour ${mail}, un mail vient de lui être envoyé.`)
+      }
     } else if (mode === 'recovery') {
       err = await onUpdatePassword(password)
     }
@@ -143,10 +288,11 @@ export default function AuthDialog({
 
   const [title, subtitle] = TITLES[mode]
   const tabs = mode === 'login' || mode === 'signup'
+  const codeStep = (mode === 'verify' || mode === 'forgotCode') && pending
   const submitLabel = {
     login: 'Se connecter',
     signup: invite ? 'Créer et rejoindre le salon' : 'Créer mon compte',
-    forgot: 'Envoyer le lien',
+    forgot: 'Envoyer le code',
     recovery: 'Enregistrer',
   }[mode]
   const passed = PASSWORD_RULES.filter((r) => r.test(password)).length
@@ -221,9 +367,23 @@ export default function AuthDialog({
           )}
 
           <h3 className="font-display text-3xl font-black uppercase leading-[0.9]">{title}</h3>
-          <p className="mt-2 text-sm text-muted">{subtitle}</p>
+          {subtitle && <p className="mt-2 text-sm text-muted">{subtitle}</p>}
 
-          {info ? (
+          {codeStep ? (
+            <CodeStep
+              key={mode}
+              email={pending.email}
+              type={mode === 'verify' ? 'signup' : 'recovery'}
+              invite={invite}
+              firstNote={pending.note}
+              onVerify={(code) => onVerifyCode(pending.email, code, mode === 'verify' ? 'signup' : 'recovery')}
+              onResend={() => onResendCode(pending.email, mode === 'verify' ? 'signup' : 'recovery')}
+              onBack={() => {
+                const back = mode === 'verify' ? (pending.note ? 'login' : 'signup') : 'forgot'
+                switchTo(back)
+              }}
+            />
+          ) : info ? (
             <p className="mt-5 rounded-2xl bg-accent/10 p-4 text-sm leading-relaxed text-accent">{info}</p>
           ) : (
             <form className="mt-5 space-y-3" onSubmit={submit} noValidate>

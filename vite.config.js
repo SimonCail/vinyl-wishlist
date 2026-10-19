@@ -12,19 +12,23 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: [
+        'favicon.svg',
+        'favicon.ico',
+        'apple-touch-icon.png',
+        'mail-logo.png',
         'pwa-192x192.png',
         'pwa-512x512.png',
         'pwa-maskable-512x512.png',
       ],
       manifest: {
-        name: 'Vinyl Wishlist',
-        short_name: 'Vinyls',
-        description: "Notre liste d'envies de vinyles partagée",
+        name: 'Wishdisc',
+        short_name: 'Wishdisc',
+        description: 'Tes vinyles rêvés et ta collection, à partager avec tes proches',
         lang: 'fr',
         start_url: '/',
         scope: '/',
         display: 'standalone',
-        background_color: '#f5f1e8',
+        background_color: '#1d4a3a',
         theme_color: '#1d4a3a',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },

@@ -22,7 +22,7 @@ function authMessage(error) {
     case 'invalid_credentials':
       return 'Email ou mot de passe incorrect.'
     case 'email_not_confirmed':
-      return 'Confirme d’abord ton email : clique sur le lien reçu par mail.'
+      return 'Ton compte n’est pas encore activé : tape le code reçu par mail.'
     case 'user_already_exists':
     case 'email_exists':
       return 'Un compte existe déjà avec cet email. Connecte-toi plutôt.'
@@ -35,6 +35,10 @@ function authMessage(error) {
       return 'Choisis un mot de passe différent de l’ancien.'
     case 'over_email_send_rate_limit':
       return 'Trop d’emails envoyés, réessaie dans quelques minutes.'
+    case 'otp_expired':
+      return 'Ce code est incorrect ou a expiré. Vérifie-le, ou demande-en un nouveau.'
+    case 'otp_disabled':
+      return 'La connexion par code n’est pas activée.'
   }
   if (error.status === 429) return "Trop d'essais, patiente quelques minutes."
   if (!navigator.onLine) return 'Pas de connexion internet.'
@@ -141,6 +145,27 @@ export function useAuth() {
     return authMessage(error)
   }
 
+  // Code à 6 chiffres reçu par mail (au lieu de cliquer le lien, pratique sur téléphone).
+  // type : 'signup' (activer le compte) ou 'recovery' (mot de passe oublié)
+  async function verifyCode(email, code, type) {
+    const token = (code ?? '').replace(/\D/g, '')
+    if (token.length < 6) return 'Le code contient au moins 6 chiffres.'
+    const { error } = await supabase.auth.verifyOtp({ email, token, type })
+    if (error) return authMessage(error.code ? error : { ...error, code: 'otp_expired' })
+    if (type === 'recovery') setRecovering(true) // on demande ensuite le nouveau mot de passe
+    return null
+  }
+
+  // Renvoyer le mail d'activation
+  async function resendSignup(email, redirectTo) {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: redirectTo || window.location.origin },
+    })
+    return authMessage(error)
+  }
+
   async function updatePassword(password) {
     const { error } = await supabase.auth.updateUser({ password })
     if (!error) setRecovering(false)
@@ -227,7 +252,7 @@ export function useAuth() {
       { emailRedirectTo: window.location.origin }
     )
     if (error) return { error: authMessage(error) }
-    return { info: `Clique sur le lien envoyé à ${email.trim()} pour confirmer le changement.` }
+    return { info: `Touche le bouton du mail envoyé à ${email.trim()} pour confirmer le changement.` }
   }
 
   // On vérifie d'abord le mot de passe actuel
@@ -274,6 +299,8 @@ export function useAuth() {
     signUp,
     signOut,
     resetPassword,
+    verifyCode,
+    resendSignup,
     updatePassword,
     updateProfile,
     setAvatar,

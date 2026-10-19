@@ -6,6 +6,8 @@ function roomMessage(error) {
   if (!error) return null
   const msg = error.message || ''
   if (msg.includes('room_not_found')) return 'Aucun salon avec ce code.'
+  if (msg.includes('join_request_required')) return 'Recharge la page pour avoir la dernière version de l’app.'
+  if (msg.includes('request_not_found')) return 'Cette demande n’existe plus (annulée entre-temps ?).'
   if (msg.includes('not_room_owner')) return 'Seul le responsable du salon peut faire ça.'
   if (msg.includes('cannot_remove_self')) return 'Pour partir toi-même, utilise « Quitter le salon ».'
   if (msg.includes('not_a_member')) return 'Cette personne ne fait plus partie du salon.'
@@ -39,6 +41,10 @@ const missingColumn = (error) =>
 export function useRooms(userId) {
   const [rooms, setRooms] = useState(() => readJSON(ROOMS_KEY, []))
   const [loaded, setLoaded] = useState(false)
+  // Demandes pour rejoindre un salon (script 15) :
+  //   mine     : celles que j'ai envoyées, en attente
+  //   incoming : celles reçues pour les salons dont je suis responsable
+  const [requests, setRequests] = useState({ mine: [], incoming: [] })
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -76,9 +82,60 @@ export function useRooms(userId) {
     writeJSON(ROOMS_KEY, list)
   }, [userId])
 
+  const loadRequests = useCallback(async () => {
+    if (!userId) {
+      setRequests({ mine: [], incoming: [] })
+      return
+    }
+    const [mine, incoming] = await Promise.all([supabase.rpc('my_room_requests'), supabase.rpc('pending_room_requests')])
+    if (mine.error || incoming.error) return // script 15 pas lancé, ou hors-ligne
+    setRequests({
+      mine: (mine.data || []).map((r) => ({
+        room_id: r.room_id,
+        room_name: r.room_name,
+        owner_name: r.owner_name,
+        room: { id: r.room_id, name: r.room_name, color: r.room_color, cover_url: r.room_cover, members: [] },
+        created_at: r.created_at,
+      })),
+      incoming: (incoming.data || []).map((r) => ({
+        room_id: r.room_id,
+        room_name: r.room_name,
+        created_at: r.created_at,
+        person: {
+          id: r.user_id,
+          name: r.name,
+          color: r.color,
+          avatar_path: r.avatar_path,
+          avatar_url: r.avatar_url,
+          avatar_label: r.avatar_label,
+        },
+      })),
+    })
+  }, [userId])
+
   useEffect(() => {
     load()
-  }, [load])
+    loadRequests()
+    if (!userId) return
+    // Une demande arrive, est acceptée ou refusée : on met tout à jour
+    const channel = supabase
+      .channel(`room-requests-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_requests' }, () => {
+        loadRequests()
+        load()
+      })
+      .subscribe()
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      loadRequests()
+      load()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      supabase.removeChannel(channel)
+    }
+  }, [load, loadRequests, userId])
 
   // Chaque fonction renvoie { room?, code?, error? }
   async function create(name) {
@@ -88,11 +145,46 @@ export function useRooms(userId) {
     return { room: data }
   }
 
+  // Rejoindre avec un code : une demande part au responsable.
+  // Renvoie { room } si j'étais déjà membre, { pending } si la demande est envoyée.
   async function join(code) {
-    const { data, error } = await supabase.rpc('join_room', { room_code: code })
+    const { data, error } = await supabase.rpc('request_join_room', { room_code: code })
+    if (error) {
+      if (error.code === 'PGRST202' || /could not find the function/i.test(error.message || '')) {
+        return { error: 'Lance d’abord le script 15-demandes-salon.sql dans Supabase.' }
+      }
+      return { error: roomMessage(error) }
+    }
+    const row = Array.isArray(data) ? data[0] : data
+    if (row?.status === 'member') {
+      await load()
+      return { room: { id: row.room_id, name: row.room_name } }
+    }
+    await loadRequests()
+    return { pending: { room_id: row.room_id, room_name: row.room_name, owner_name: row.owner_name } }
+  }
+
+  // --- Demandes ---
+  async function acceptRequest(roomId, memberId) {
+    const { error } = await supabase.rpc('accept_room_request', { target_room: roomId, member: memberId })
+    await loadRequests()
     if (error) return { error: roomMessage(error) }
     await load()
-    return { room: data }
+    return {}
+  }
+
+  async function declineRequest(roomId, memberId) {
+    const { error } = await supabase.rpc('decline_room_request', { target_room: roomId, member: memberId })
+    await loadRequests()
+    if (error) return { error: roomMessage(error) }
+    return {}
+  }
+
+  async function cancelRequest(roomId) {
+    const { error } = await supabase.rpc('cancel_room_request', { target_room: roomId })
+    await loadRequests()
+    if (error) return { error: roomMessage(error) }
+    return {}
   }
 
   async function leave(roomId) {
@@ -176,6 +268,7 @@ export function useRooms(userId) {
 
   return {
     rooms, loaded, reload: load,
+    requests, acceptRequest, declineRequest, cancelRequest,
     create, join, leave,
     update, uploadCover, removeMember, regenerateCode, transfer, remove,
   }

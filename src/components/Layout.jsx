@@ -57,18 +57,34 @@ function Badge({ count, className = '' }) {
   )
 }
 
-// Logo : un petit vinyle qui fait un tour à chaque changement de page
+// Le disque Wishdisc : vinyle noir, sillon jaune, étiquette corail avec l'étoile des souhaits
+export function BrandMark({ size = 32, className = '' }) {
+  return (
+    <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true" className={className}>
+      <circle cx="50" cy="50" r="48" fill="#1b2420" />
+      <circle cx="50" cy="50" r="38" fill="none" stroke="#f5f1e8" strokeOpacity=".16" strokeWidth="1.6" />
+      <path d="M 50 12.5 A 37.5 37.5 0 0 1 85.7 61.6" fill="none" stroke="#f1c04e" strokeWidth="5" strokeLinecap="round" />
+      <circle cx="50" cy="50" r="17" fill="#ec5b3e" />
+      <path
+        d="M50 39.5L52.6 46.3L59.9 46.7L54.2 51.3L56.1 58.4L50 54.4L43.9 58.4L45.8 51.3L40.1 46.7L47.4 46.3Z"
+        fill="#f5f1e8"
+        stroke="#f5f1e8"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// Logo : le disque fait un tour à chaque changement de page
 function Logo({ spinKey, onClick }) {
   return (
-    <button onClick={onClick} aria-label="Accueil : ma liste" className="group flex items-center gap-2.5">
-      <span
-        key={spinKey}
-        aria-hidden="true"
-        className="vinyl-disc logo-spin block h-8 w-8 shrink-0 shadow-none ring-1 ring-black/30"
-        style={{ '--disc-label': 'var(--color-ink)' }}
-      />
+    <button onClick={onClick} aria-label="Wishdisc : ma liste" className="group flex items-center gap-2.5">
+      <span key={spinKey} className="logo-spin block shrink-0">
+        <BrandMark size={32} />
+      </span>
       <span className="font-display text-[1.35rem] font-black uppercase leading-none tracking-tight">
-        Vinyl&nbsp;Wishlist
+        Wish<span className="opacity-70">disc</span>
       </span>
     </button>
   )

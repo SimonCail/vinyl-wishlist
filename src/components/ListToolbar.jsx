@@ -48,8 +48,17 @@ function PeopleChips({ members, meId, person, onPerson, sharedCount }) {
   )
 }
 
-// Panneau des filtres qui monte du bas (téléphone)
+// Panneau des filtres qui monte du bas (téléphone).
+// On le ferme en touchant à côté, avec « Voir les disques », avec Échap,
+// ou en le faisant glisser vers le bas depuis la petite barre (ou le titre).
+const CLOSE_DISTANCE = 110 // px à descendre pour fermer
+const CLOSE_SPEED = 0.5 // ou un geste rapide (px/ms)
+
 function FilterSheet({ options, sort, onSort, genres, genre, onGenre, people, hasFilters, onReset, onClose }) {
+  const [dy, setDy] = useState(0) // de combien le panneau est descendu
+  const [closing, setClosing] = useState(false)
+  const drag = useRef(null)
+
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
@@ -60,15 +69,70 @@ function FilterSheet({ options, sort, onSort, genres, genre, onGenre, people, ha
     }
   }, [onClose])
 
+  function close() {
+    setClosing(true)
+    setTimeout(onClose, 220) // le temps de le voir descendre
+  }
+
+  // --- Glisser vers le bas ---
+  function onPointerDown(e) {
+    if (e.target.closest('button')) return // « Tout effacer » reste un bouton
+    const now = performance.now()
+    drag.current = { startY: e.clientY, lastY: e.clientY, lastT: now, speed: 0 }
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId) // le doigt peut sortir de la zone
+    } catch {
+      // pas grave : on suit quand même le geste
+    }
+  }
+  function onPointerMove(e) {
+    const d = drag.current
+    if (!d) return
+    const now = performance.now()
+    d.speed = (e.clientY - d.lastY) / Math.max(1, now - d.lastT)
+    d.lastY = e.clientY
+    d.lastT = now
+    setDy(Math.max(0, e.clientY - d.startY)) // vers le haut : il ne bouge pas
+  }
+  function onPointerUp() {
+    const d = drag.current
+    if (!d) return
+    drag.current = null
+    if (dy > CLOSE_DISTANCE || (d.speed > CLOSE_SPEED && dy > 10)) close()
+    else setDy(0) // pas assez : il remonte
+  }
+
+  const dragging = !!drag.current
+  const shift = closing ? '100%' : `${dy}px`
+  const fade = closing ? 0 : Math.max(0.15, 1 - dy / 400)
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm sm:hidden" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:hidden">
+      <div
+        aria-hidden="true"
+        onClick={close}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        style={{ opacity: fade, transition: dragging ? 'none' : 'opacity 220ms ease' }}
+      />
+      <div className="sheet-up relative w-full">
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Filtres"
-        onClick={(e) => e.stopPropagation()}
-        className="sheet-up nice-scroll max-h-[85dvh] w-full overflow-y-auto rounded-t-3xl bg-surface px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 shadow-2xl"
+        className="nice-scroll max-h-[85dvh] w-full overflow-y-auto rounded-t-3xl bg-surface px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 shadow-2xl"
+        style={{
+          transform: `translateY(${shift})`,
+          transition: dragging ? 'none' : 'transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+        }}
       >
+        {/* Zone pour attraper le panneau : la petite barre et le titre */}
+        <div
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          className="-mx-5 -mt-3 cursor-grab touch-none px-5 pt-3 active:cursor-grabbing"
+        >
         <span aria-hidden="true" className="mx-auto mb-4 block h-1.5 w-10 rounded-full bg-line" />
         <div className="flex items-center justify-between">
           <h2 className="font-display text-3xl font-black uppercase leading-none">Filtres</h2>
@@ -77,6 +141,8 @@ function FilterSheet({ options, sort, onSort, genres, genre, onGenre, people, ha
               Tout effacer
             </button>
           )}
+        </div>
+
         </div>
 
         <h3 className="mb-2 mt-6 text-sm font-medium text-muted">Trier par</h3>
@@ -109,11 +175,12 @@ function FilterSheet({ options, sort, onSort, genres, genre, onGenre, people, ha
         )}
 
         <button
-          onClick={onClose}
+          onClick={close}
           className="mt-8 w-full rounded-full bg-accent py-3.5 text-sm font-bold text-ink transition hover:bg-accent-soft"
         >
           Voir les disques
         </button>
+      </div>
       </div>
     </div>
   )

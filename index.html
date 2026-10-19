@@ -4,23 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#1d4a3a" />
-    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
+    <meta name="description" content="Wishdisc : ta liste de vinyles rêvés et ta collection, à partager avec tes proches." />
+    <!-- Logo Wishdisc : onglet du navigateur et écran d'accueil -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Wishdisc" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=DM+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <title>Vinyl Wishlist</title>
-    <script>
-      // Thème jour / nuit posé avant l'affichage, pour éviter un flash crème la nuit
-      try {
-        var t = localStorage.getItem('vinyl-wishlist-theme')
-        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-        document.documentElement.dataset.theme = t
-        if (t === 'dark') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#153a2d')
-      } catch (e) {}
-    </script>
+    <title>Wishdisc</title>
   </head>
   <body>
     <div id="root"></div>

@@ -37,8 +37,11 @@ function Section({ title, children, aside }) {
 // Fenêtre « Gérer le salon », réservée au responsable :
 // nom, couleur, pochette, code d'invitation, membres, suppression.
 // actions : { update, uploadCover, regenerateCode, removeMember, transfer, remove } (voir useRooms),
-// chacune renvoie { error? }. covers : pochettes des disques des membres du salon.
-export default function RoomSettings({ room, meId, covers = [], actions, onCopyInvite, onClose, onToast, offline }) {
+// chacune renvoie { error? } ; acceptRequest(req) / declineRequest(req) répondent aux demandes.
+// covers : pochettes des disques des membres du salon.
+// requests : demandes en attente pour rejoindre ce salon
+export default function RoomSettings({ room, meId, covers = [], requests = [], actions, onCopyInvite, onClose, onToast, offline }) {
+  const [answering, setAnswering] = useState(null) // demande en cours de réponse
   const [name, setName] = useState(room.name)
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(null) // ce qui est en cours d'enregistrement
@@ -186,6 +189,47 @@ export default function RoomSettings({ room, meId, covers = [], actions, onCopyI
             </p>
           )}
 
+          {/* Demandes pour rejoindre */}
+          {requests.length > 0 && (
+            <Section
+              title="Demandes pour rejoindre"
+              aside={<span className="rounded-full bg-coral px-2 py-0.5 font-mono text-xs font-bold text-white">{requests.length}</span>}
+            >
+              <ul className="-my-1 divide-y divide-line">
+                {requests.map((req) => (
+                  <li key={req.person.id} className="flex items-center gap-3 py-3">
+                    <Avatar member={req.person} size={34} ring={false} />
+                    <p className="min-w-0 flex-1 truncate font-medium">{req.person.name}</p>
+                    <div className="flex shrink-0 gap-1.5">
+                      <button
+                        onClick={async () => {
+                          setAnswering(req.person.id)
+                          await actions.declineRequest(req)
+                          setAnswering(null)
+                        }}
+                        disabled={offline || answering === req.person.id}
+                        className="rounded-full px-3 py-1.5 text-xs font-medium text-muted transition hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50"
+                      >
+                        Refuser
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setAnswering(req.person.id)
+                          await actions.acceptRequest(req)
+                          setAnswering(null)
+                        }}
+                        disabled={offline || answering === req.person.id}
+                        className="rounded-full bg-accent px-3.5 py-1.5 text-xs font-bold text-ink transition hover:bg-accent-soft disabled:opacity-50"
+                      >
+                        Accepter
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
           {/* Nom + couleur */}
           <Section title="Le salon">
             <form onSubmit={saveName}>
@@ -321,6 +365,7 @@ export default function RoomSettings({ room, meId, covers = [], actions, onCopyI
                 </button>
               )}
             </div>
+            <p className="mt-3 text-xs text-muted">Avec ce code, on t’envoie une demande : personne n’entre sans ton accord.</p>
             {confirm?.kind === 'code' && (
               <div className="animate-pop mt-4 rounded-2xl bg-raised p-4">
                 <p className="text-sm">
@@ -389,7 +434,7 @@ export default function RoomSettings({ room, meId, covers = [], actions, onCopyI
                       <div className="animate-pop mt-3 rounded-2xl bg-raised p-4">
                         <p className="text-sm">
                           {confirm.kind === 'remove'
-                            ? `${m.name} ne verra plus les disques du salon. Sa liste perso ne change pas. Pour revenir, il lui faudra le code.`
+                            ? `${m.name} ne verra plus les disques du salon. Sa liste perso ne change pas. Pour revenir, il lui faudra redemander avec le code.`
                             : `${m.name} devient responsable du salon. Tu restes membre, mais tu ne pourras plus le gérer.`}
                         </p>
                         <div className="mt-3 flex gap-2">

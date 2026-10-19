@@ -2,6 +2,7 @@ import { Avatar, AvatarStack } from './Avatar'
 import SpinningDisc from './SpinningDisc'
 import { RoomCover, roomColor } from './Rooms'
 import { usePlayer, toggle } from '../lib/player'
+import { BrandMark } from './Layout'
 
 const PlayIcon = () => (
   <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
@@ -107,6 +108,13 @@ export default function Hero({ count, context, topRight, compact = false, disc =
       <div className="relative mx-auto max-w-[88rem] sm:px-8 lg:px-14 px-5">
         {topRight ? (
           <div className="flex items-center justify-between gap-3 py-4">
+            {/* Le nom de l'app (écran d'accueil sans compte) */}
+            <span className="flex items-center gap-2.5">
+              <BrandMark size={34} />
+              <span className="font-display text-[1.35rem] font-black uppercase leading-none tracking-tight">
+                Wish<span className="opacity-70">disc</span>
+              </span>
+            </span>
             <div className="ml-auto">{topRight}</div>
           </div>
         ) : (

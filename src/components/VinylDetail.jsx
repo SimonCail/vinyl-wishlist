@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Cover from './Cover'
 import { CloseIcon, ArrowIcon, StarIcon, CheckIcon, PlusIcon, NoteIcon } from './Icons'
 import { AvatarStack } from './Avatar'
@@ -63,6 +63,31 @@ const marketUrl = (v) =>
     ? `https://www.discogs.com/sell/release/${v.discogs_id}`
     : `https://www.discogs.com/sell/list?master_id=${v.discogs_id}&format=Vinyl`
 
+// Le titre garde sa grande taille, sauf si un mot ne tient pas sur la largeur
+// (« CALIFORNICATION ») : on le réduit juste ce qu'il faut. En dernier recours
+// (mot interminable, même au plus petit), le mot peut se couper.
+function useFitTitle(ref, text) {
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const fit = () => {
+      el.style.fontSize = ''
+      el.style.overflowWrap = 'normal'
+      let size = parseFloat(getComputedStyle(el).fontSize)
+      while (el.scrollWidth > el.clientWidth + 1 && size > 18) {
+        size -= 1
+        el.style.fontSize = `${size}px`
+      }
+      if (el.scrollWidth > el.clientWidth + 1) el.style.overflowWrap = 'anywhere'
+    }
+    fit()
+    document.fonts?.ready.then(fit) // la police arrive parfois après
+    const ro = new ResizeObserver(fit)
+    ro.observe(el.parentElement)
+    return () => ro.disconnect()
+  }, [ref, text])
+}
+
 const sinceLabel = (iso) =>
   new Date(iso).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
 
@@ -80,6 +105,8 @@ export default function VinylDetail({
   const synced = useRef(false)
   const color = colorFor(vinyl)
   const mine = vinyl.mine
+  const titleRef = useRef(null)
+  useFitTitle(titleRef, vinyl.title)
 
   // Chargement des infos à jour (sauf si le cache est récent)
   useEffect(() => {
@@ -166,7 +193,7 @@ export default function VinylDetail({
         </div>
 
         <div
-          className="nice-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          className="nice-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain"
           onScroll={(e) => setCompact(e.currentTarget.scrollTop > 140)}
         >
           {/* En-tête : pochette + disque à la couleur du vinyle */}
@@ -187,13 +214,15 @@ export default function VinylDetail({
                 />
               </div>
 
-              <div className="min-w-0 pr-8 sm:pb-1">
+              <div className="min-w-0 flex-1 pr-8 sm:pb-1">
                 {vinyl.kind && vinyl.kind !== 'Album' && (
                   <span className="mb-2 inline-block bg-ink px-2 py-0.5 font-mono text-[10px] font-medium uppercase">
                     {vinyl.kind}
                   </span>
                 )}
-                <h2 className="font-display text-3xl font-black uppercase leading-[0.9] sm:text-4xl">{vinyl.title}</h2>
+                <h2 ref={titleRef} className="font-display text-3xl font-black uppercase leading-[0.9] sm:text-4xl">
+                  {vinyl.title}
+                </h2>
                 <p className="mt-2 text-muted">
                   {vinyl.artist}
                   {vinyl.year && ` · ${vinyl.year}`}

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Avatar } from './Avatar'
-import { CheckIcon, CloseIcon, PlusIcon, SearchIcon } from './Icons'
+import { CheckIcon, CloseIcon, PlusIcon, SearchIcon, TrashIcon } from './Icons'
 import { RecordIcon } from './Layout'
 
 // --- Dates ---
@@ -60,13 +60,13 @@ function CoverStrip({ covers, size = 28 }) {
 
 // Liste des conversations (colonne de gauche sur ordinateur, page entière sur téléphone)
 // coversOf(id) : pochettes des derniers souhaits de la personne
-function ConversationList({ conversations, friends, people, meId, activeId, coversOf, onOpen, onFindFriends }) {
+function ConversationList({ conversations, friends, personOf, meId, activeId, coversOf, onOpen, onFindFriends }) {
   const [q, setQ] = useState('')
   const norm = (t = '') => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   const match = (p) => !q.trim() || norm(p.name).includes(norm(q.trim()))
   const withConv = new Set(conversations.map((c) => c.otherId))
   const convs = conversations
-    .map((c) => ({ ...c, person: people.get(c.otherId) ?? { id: c.otherId, name: 'Ancien ami', color: '#9aa398' } }))
+    .map((c) => ({ ...c, person: personOf(c.otherId) }))
     .filter((c) => match(c.person))
   const others = friends.filter((f) => !withConv.has(f.id) && match(f))
   const unreadTotal = conversations.reduce((n, c) => n + c.unread, 0)
@@ -239,7 +239,7 @@ function EmptyPane({ friends, coversOf, onOpen }) {
 // La messagerie : liste + conversation côte à côte sur ordinateur,
 // l'une puis l'autre sur téléphone.
 export function Messenger({
-  activeId, activeFriend, conversations, friends, people, meId, missing, coversOf,
+  activeId, activeFriend, conversations, friends, personOf, meId, missing, coversOf,
   onOpen, onFindFriends, threadProps,
 }) {
   if (missing) {
@@ -262,7 +262,7 @@ export function Messenger({
         <ConversationList
           conversations={conversations}
           friends={friends}
-          people={people}
+          personOf={personOf}
           meId={meId}
           activeId={activeId}
           coversOf={coversOf}
@@ -394,7 +394,7 @@ const STARTERS = ['Salut ! Tu écoutes quoi en ce moment ?', 'J’ai vu un disqu
 
 export function ChatThread({
   friend, isFriend, messages, meId, myVinyls, statusOf, coversOf,
-  onSend, onRetry, onMarkRead, onAddVinyl, onBack, onOpenFriend, offline,
+  onSend, onRetry, onMarkRead, onAddVinyl, onBack, onOpenFriend, onClear, offline,
 }) {
   const [text, setText] = useState('')
   const [picker, setPicker] = useState(false)
@@ -454,8 +454,11 @@ export function ChatThread({
     return out
   }, [messages])
   const lastMine = [...messages].reverse().find((m) => m.sender === meId)
-  const canWrite = isFriend && !offline
-  const covers = coversOf(friend.id)
+  // Compte supprimé : on garde la conversation, mais plus de profil ni de réponse possible
+  const gone = !!friend.deleted
+  const canSee = isFriend && !gone
+  const canWrite = canSee && !offline
+  const covers = gone ? [] : coversOf(friend.id)
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -467,13 +470,15 @@ export function ChatThread({
         <Avatar member={friend} size={44} ring={false} />
         <span className="min-w-0 flex-1">
           <span className="block truncate font-display text-2xl font-black uppercase leading-none">{friend.name}</span>
-          {isFriend && (
+          {canSee ? (
             <button onClick={() => onOpenFriend(friend.id)} className="mt-0.5 text-xs text-muted underline-offset-4 hover:text-paper hover:underline">
               Voir ses disques
             </button>
-          )}
+          ) : gone ? (
+            <span className="mt-0.5 block text-xs text-muted">Ce compte n’existe plus</span>
+          ) : null}
         </span>
-        {isFriend && covers?.length > 0 && (
+        {canSee && covers?.length > 0 && (
           <button
             onClick={() => onOpenFriend(friend.id)}
             title={`Les derniers souhaits de ${friend.name}`}
@@ -481,6 +486,16 @@ export function ChatThread({
           >
             <CoverStrip covers={covers} size={24} />
             Ses souhaits
+          </button>
+        )}
+        {messages.length > 0 && onClear && (
+          <button
+            onClick={() => onClear(friend)}
+            aria-label="Supprimer la conversation"
+            title="Supprimer la conversation"
+            className="shrink-0 rounded-full p-2.5 text-muted transition hover:bg-raised hover:text-paper"
+          >
+            <TrashIcon width={18} height={18} />
           </button>
         )}
       </div>
@@ -494,15 +509,17 @@ export function ChatThread({
                 <span className="vinyl-disc absolute bottom-0 right-0 h-[5.5rem] w-[5.5rem] animate-disc ring-1 ring-line" style={{ '--disc-label': friend.color }} />
                 <Avatar member={friend} size={88} ring={false} className="relative ring-4 ring-surface" />
               </div>
-              <p className="mt-6 font-display text-3xl font-black uppercase leading-none">Dis bonjour à {friend.name}</p>
+              <p className="mt-6 font-display text-3xl font-black uppercase leading-none">
+                {gone ? 'Aucun message' : `Dis bonjour à ${friend.name}`}
+              </p>
               {covers?.length > 0 ? (
                 <button onClick={() => onOpenFriend(friend.id)} className="mt-4 flex flex-col items-center gap-2 text-sm text-muted hover:text-paper sm:flex-row sm:gap-3">
                   <CoverStrip covers={covers} size={30} />
                   Ses derniers souhaits : une idée de cadeau ?
                 </button>
-              ) : (
+              ) : canWrite ? (
                 <p className="mt-2 max-w-xs text-sm text-muted">Ou envoie-lui un de tes disques avec le bouton vinyle.</p>
-              )}
+              ) : null}
               {canWrite && (
                 <div className="mt-6 flex flex-wrap justify-center gap-2">
                   {STARTERS.map((t) => (
@@ -581,7 +598,9 @@ export function ChatThread({
 
       {/* Écrire */}
       <div className="shrink-0 border-t border-line bg-ink px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 lg:bg-surface lg:px-5 lg:pb-4">
-        {!isFriend ? (
+        {gone ? (
+          <p className="py-2 text-center text-sm text-muted">Ce compte a été supprimé : tu ne peux plus lui écrire.</p>
+        ) : !isFriend ? (
           <p className="py-2 text-center text-sm text-muted">Vous n’êtes plus amis : tu ne peux plus lui écrire.</p>
         ) : (
           <form

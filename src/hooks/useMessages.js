@@ -33,13 +33,28 @@ export function useMessages(userId) {
   const [messages, setMessages] = useState([]) // du plus ancien au plus récent
   const [loaded, setLoaded] = useState(false)
   const [missing, setMissing] = useState(false)
+  // Profils des personnes avec qui j'ai une conversation (même si on n'est plus amis).
+  // Une personne absente a supprimé son compte. null = pas encore chargé, false = script 16 manquant.
+  const [partners, setPartners] = useState(null)
+  const partnersRef = useRef(null)
+  partnersRef.current = partners
   const tempId = useRef(0)
+
+  const loadPartners = useCallback(async () => {
+    if (!userId) return
+    const { data, error } = await supabase.rpc('conversation_partners')
+    // Script 16 pas encore lancé : on ne sait pas qui a supprimé son compte (false)
+    if (error) setPartners((prev) => (prev instanceof Map ? prev : false))
+    else setPartners(new Map((data ?? []).map((p) => [p.id, p])))
+  }, [userId])
 
   const load = useCallback(async () => {
     if (!userId) {
       setMessages([])
+      setPartners(null)
       return
     }
+    loadPartners()
     const { data, error } = await supabase
       .from('messages')
       .select('*')
@@ -55,7 +70,7 @@ export function useMessages(userId) {
     // On garde les messages encore en cours d'envoi
     setMessages((prev) => byDate([...data, ...prev.filter((m) => m.pending || m.failed)]))
     setLoaded(true)
-  }, [userId])
+  }, [userId, loadPartners])
 
   useEffect(() => {
     load()
@@ -65,6 +80,9 @@ export function useMessages(userId) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload) => {
         if (payload.eventType === 'INSERT') {
           const m = payload.new
+          // Quelqu'un de nouveau m'écrit : on récupère son profil
+          const other = m.sender === userId ? m.recipient : m.sender
+          if (partnersRef.current instanceof Map && !partnersRef.current.has(other)) loadPartners()
           setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : byDate([...prev, m])))
         } else if (payload.eventType === 'UPDATE') {
           setMessages((prev) => prev.map((x) => (x.id === payload.new.id ? payload.new : x)))
@@ -81,7 +99,7 @@ export function useMessages(userId) {
       document.removeEventListener('visibilitychange', onVisible)
       supabase.removeChannel(channel)
     }
-  }, [userId, load])
+  }, [userId, load, loadPartners])
 
   // Une conversation par personne : dernier message + nombre de non lus
   const conversations = useMemo(() => {
@@ -149,5 +167,18 @@ export function useMessages(userId) {
     await supabase.rpc('mark_conversation_read', { other: otherId })
   }
 
-  return { messages, loaded, missing, conversations, unreadTotal, thread, send, retry, markRead, reload: load }
+  // Supprimer une conversation (de mon côté seulement)
+  async function clear(otherId) {
+    const { error } = await supabase.rpc('clear_conversation', { other: otherId })
+    if (error) {
+      if (error.code === 'PGRST202' || /clear_conversation/.test(error.message || '')) {
+        return { error: 'Lance d’abord le script 16-conversations.sql dans Supabase.' }
+      }
+      return { error: messageError(error) }
+    }
+    setMessages((prev) => prev.filter((m) => m.sender !== otherId && m.recipient !== otherId))
+    return {}
+  }
+
+  return { messages, loaded, missing, partners, conversations, clear, unreadTotal, thread, send, retry, markRead, reload: load }
 }

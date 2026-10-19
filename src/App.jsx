@@ -73,7 +73,7 @@ export default function App() {
   useEffect(() => {
     if (me?.color) applyAccent(me.color)
   }, [me?.color])
-  const { rooms, loaded: roomsLoaded, reload: reloadRooms, ...roomActions } = useRooms(userId)
+  const { rooms, loaded: roomsLoaded, reload: reloadRooms, requests: roomRequests, ...roomActions } = useRooms(userId)
   const { toasts, toast } = useToasts()
   const online = useOnlineStatus()
   const install = useInstallPrompt()
@@ -266,15 +266,18 @@ export default function App() {
         }
       })
     } else {
-      roomActions.join(inviteCode).then(({ room: joined, error }) => {
+      roomActions.join(inviteCode).then(({ room: joined, pending, error }) => {
         if (cancelled) return
         clearInviteFromUrl()
         setInviteCode(null)
         setInvite(null)
         if (error) toast(error, 'error')
-        else {
+        else if (pending) {
+          navigate(paths.rooms)
+          toast(pendingMessage(pending))
+        } else {
           selectContext(joined.id)
-          toast(`Bienvenue dans « ${joined.name} »`)
+          toast(`Tu es déjà dans « ${joined.name} »`)
         }
       })
     }
@@ -349,10 +352,10 @@ export default function App() {
   // Inviter quelqu'un : partage du lien de l'app (ou copie)
   async function inviteFriend() {
     const url = window.location.origin
-    const text = `Rejoins-moi sur Vinyl Wishlist pour partager nos listes de vinyles : ajoute « ${me.name} » en ami.`
+    const text = `Rejoins-moi sur Wishdisc pour partager nos listes de vinyles : ajoute « ${me.name} » en ami.`
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'Vinyl Wishlist', text, url })
+        await navigator.share({ title: 'Wishdisc', text, url })
         return
       } catch {
         // partage annulé : on copie le lien à la place
@@ -564,6 +567,18 @@ export default function App() {
     setNoteTarget(null)
   }
 
+  // Supprimer une conversation (de mon côté)
+  const [clearTarget, setClearTarget] = useState(null)
+  async function confirmClear() {
+    const person = clearTarget
+    setClearTarget(null)
+    if (!ensureOnline()) return
+    const { error } = await messagesApi.clear(person.id)
+    if (error) return toast(error, 'error')
+    navigate(paths.messages, { replace: true })
+    toast('Conversation supprimée')
+  }
+
   async function confirmDelete() {
     if (!ensureOnline()) {
       setDeleteTarget(null)
@@ -584,14 +599,57 @@ export default function App() {
   }
 
   // --- Salons ---
+  // Rejoindre = envoyer une demande au responsable, qui l'accepte ou la refuse
+  const pendingMessage = (p) =>
+    `Demande envoyée${p.owner_name ? ` à ${p.owner_name}` : ''} : tu entreras dans « ${p.room_name} » dès que ce sera accepté.`
+
   async function joinRoom(code) {
-    const { room: joined, error } = await roomActions.join(code)
+    const { room: joined, pending, error } = await roomActions.join(code)
     if (error) return error
+    if (pending) {
+      toast(pendingMessage(pending))
+      return null
+    }
     selectContext(joined.id)
-    loadVinyls()
-    toast(`Bienvenue dans « ${joined.name} »`)
+    toast(`Tu es déjà dans « ${joined.name} »`)
     return null
   }
+
+  async function answerRequest(req, accept) {
+    if (!ensureOnline()) return
+    const res = accept
+      ? await roomActions.acceptRequest(req.room_id, req.person.id)
+      : await roomActions.declineRequest(req.room_id, req.person.id)
+    if (res.error) return toast(res.error, 'error')
+    if (accept) {
+      loadVinyls()
+      toast(`${req.person.name} a rejoint « ${req.room_name} »`)
+    } else toast(`Demande de ${req.person.name} refusée`)
+  }
+
+  async function cancelRequest(req) {
+    pendingNames.current.delete(req.room_id) // annulée par moi : rien à annoncer
+    const res = await roomActions.cancelRequest(req.room_id)
+    if (res.error) toast(res.error, 'error')
+  }
+
+  // Une de mes demandes n'est plus en attente : si le salon apparaît dans mes
+  // salons, c'est qu'elle a été acceptée (on le dit, et on charge ses disques)
+  const pendingNames = useRef(new Map()) // demandes en attente : id du salon → nom
+  const awaiting = useRef(new Map()) // demandes disparues, salon pas encore chargé
+  useEffect(() => {
+    const now = new Map(roomRequests.mine.map((r) => [r.room_id, r.room_name]))
+    for (const [id, name] of pendingNames.current) if (!now.has(id)) awaiting.current.set(id, name)
+    pendingNames.current = now
+    for (const [id, name] of awaiting.current) {
+      if (rooms.some((r) => r.id === id)) {
+        awaiting.current.delete(id)
+        loadVinyls()
+        toast(`Tu as été accepté dans « ${name} »`)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomRequests.mine, rooms])
 
   async function createRoom(name) {
     const { room: created, error } = await roomActions.create(name)
@@ -619,6 +677,8 @@ export default function App() {
     uploadCover: roomActions.uploadCover,
     regenerateCode: roomActions.regenerateCode,
     transfer: roomActions.transfer,
+    acceptRequest: (req) => answerRequest(req, true),
+    declineRequest: (req) => answerRequest(req, false),
     removeMember: async (roomId, memberId) => {
       const res = await roomActions.removeMember(roomId, memberId)
       if (!res.error) loadVinyls()
@@ -657,9 +717,28 @@ export default function App() {
     return res
   }
 
+  // Code reçu par mail : activer le compte, ou mot de passe oublié
+  async function handleVerifyCode(email, code, type) {
+    const err = await auth.verifyCode(email, code, type)
+    if (!err && type === 'signup') {
+      setAuthMode(null)
+      toast('Compte activé, bienvenue !')
+    }
+    // (mot de passe oublié : la fenêtre passe d'elle-même à « Nouveau mot de passe »)
+    return err
+  }
+
+  function handleResendCode(email, type) {
+    if (type === 'recovery') return auth.resetPassword(email)
+    return auth.resendSignup(email, inviteCode ? inviteUrl(inviteCode) : window.location.origin)
+  }
+
   async function handleUpdatePassword(password) {
     const err = await auth.updatePassword(password)
-    if (!err) toast('Mot de passe modifié')
+    if (!err) {
+      setAuthMode(null) // (sinon la fenêtre « mot de passe oublié » reviendrait)
+      toast('Mot de passe modifié')
+    }
     return err
   }
 
@@ -861,6 +940,8 @@ export default function App() {
       onReset={auth.resetPassword}
       onUpdatePassword={handleUpdatePassword}
       onCheckPseudo={auth.checkPseudo}
+      onVerifyCode={handleVerifyCode}
+      onResendCode={handleResendCode}
       onClose={auth.recovering ? undefined : () => setAuthMode(null)}
     />
   )
@@ -941,9 +1022,25 @@ export default function App() {
 
   // Barre du haut / onglets : où aller
   const section = sectionOf(route.name)
-  const badges = { friends: friendsApi.incoming.length, messages: messagesApi.unreadTotal }
+  const badges = {
+    rooms: roomRequests.incoming.length, // demandes pour rejoindre mes salons
+    friends: friendsApi.incoming.length,
+    messages: messagesApi.unreadTotal,
+  }
   const goSection = (name) => navigate({ home: paths.home, rooms: paths.rooms, friends: paths.friends, messages: paths.messages }[name])
-  const chatFriend = route.name === 'chat' ? people.get(route.id) ?? null : null
+  // Qui est la personne d'une conversation : un ami, un membre d'un salon, un ancien ami…
+  // ou un compte supprimé (ses messages restent visibles)
+  const partners = messagesApi.partners
+  // (simple fonction, pas de hook : on est après le « return » de l'écran de connexion)
+  const personOf = (id) =>
+    people.get(id) ??
+    (partners instanceof Map ? partners.get(id) : null) ??
+    (partners instanceof Map
+      ? { id, name: 'Compte supprimé', color: '#9aa398', deleted: true }
+      : { id, name: 'Ancien ami', color: '#9aa398' })
+  // null tant qu'on ne sait pas encore qui c'est (le temps de charger)
+  const chatFriend =
+    route.name !== 'chat' ? null : people.has(route.id) || partners !== null ? personOf(route.id) : null
   const isMessenger = route.name === 'messages' || route.name === 'chat'
 
   return (
@@ -996,8 +1093,13 @@ export default function App() {
                 <span className="font-mono tracking-wider">{room.code}</span>
               </button>
               {room.owner_id === userId && (
-                <button onClick={() => setRoomSettingsOpen(true)} className={headerBtnSolid}>
+                <button onClick={() => setRoomSettingsOpen(true)} className={`${headerBtnSolid} relative`}>
                   <CrownIcon width={14} height={14} /> Gérer
+                  {roomRequests.incoming.some((q) => q.room_id === room.id) && (
+                    <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-coral px-1 font-mono text-[11px] font-bold text-white">
+                      {roomRequests.incoming.filter((q) => q.room_id === room.id).length}
+                    </span>
+                  )}
                 </button>
               )}
               <button onClick={() => setLeaveTarget(room)} className={headerBtn}>
@@ -1051,6 +1153,9 @@ export default function App() {
             onOpen={(id) => selectContext(id)}
             onJoin={joinRoom}
             onCreate={createRoom}
+            requests={roomRequests}
+            onAnswer={answerRequest}
+            onCancelRequest={cancelRequest}
             offline={!online}
           />
         )}
@@ -1076,7 +1181,7 @@ export default function App() {
             activeFriend={chatFriend}
             conversations={messagesApi.conversations}
             friends={friendsApi.friends}
-            people={people}
+            personOf={personOf}
             meId={userId}
             missing={messagesApi.missing}
             coversOf={coversOf}
@@ -1094,6 +1199,7 @@ export default function App() {
               onAddVinyl: (v) => addItem(v, 'wish'),
               onBack: () => navigate(paths.messages),
               onOpenFriend: (id) => selectContext(`friend:${id}`),
+              onClear: (person) => setClearTarget(person),
               offline: !online,
             }}
           />
@@ -1373,6 +1479,7 @@ export default function App() {
         <RoomSettings
           room={room}
           meId={userId}
+          requests={roomRequests.incoming.filter((q) => q.room_id === room.id)}
           covers={roomCovers}
           actions={roomSettingsActions}
           onCopyInvite={copyInvite}
@@ -1395,10 +1502,23 @@ export default function App() {
           onClose={() => setDeleteTarget(null)}
         />
       )}
+      {clearTarget && (
+        <ConfirmDialog
+          title="Supprimer cette conversation ?"
+          message={
+            clearTarget.deleted
+              ? 'Les messages seront effacés définitivement.'
+              : `Les messages disparaîtront de ton côté. ${clearTarget.name} garde sa copie, et si tu reçois un nouveau message la conversation reviendra.`
+          }
+          confirmLabel="Supprimer"
+          onConfirm={confirmClear}
+          onClose={() => setClearTarget(null)}
+        />
+      )}
       {leaveTarget && (
         <ConfirmDialog
           title="Quitter ce salon ?"
-          message={`Tu ne verras plus les disques des autres membres de « ${leaveTarget.name} ». Ta liste perso ne change pas. Pour revenir, il faudra le code.${
+          message={`Tu ne verras plus les disques des autres membres de « ${leaveTarget.name} ». Ta liste perso ne change pas. Pour revenir, il faudra redemander avec le code.${
             leaveTarget.owner_id === userId && leaveTarget.members.length > 1
               ? ' Tu es responsable : le membre le plus ancien prendra le relais.'
               : leaveTarget.members.length <= 1

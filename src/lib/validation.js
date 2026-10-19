@@ -9,7 +9,7 @@ const PSEUDO_RE = new RegExp(`^[${LETTER}0-9][${LETTER}0-9._-]*$`)
 const RESERVED = [
   'admin', 'administrateur', 'administrator', 'moderateur', 'modérateur', 'moderator', 'support',
   'root', 'system', 'systeme', 'système', 'staff', 'equipe', 'équipe', 'officiel', 'official',
-  'vinyl', 'vinyle', 'vinylwishlist', 'vinyl-wishlist', 'vinyl_wishlist', 'moi', 'null', 'undefined',
+  'vinyl', 'vinyle', 'wishdisc', 'wish-disc', 'wish_disc', 'vinylwishlist', 'vinyl-wishlist', 'vinyl_wishlist', 'moi', 'null', 'undefined',
 ]
 
 // Message d'erreur, ou null si le pseudo respecte les règles
